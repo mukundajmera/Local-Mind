@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+.nyc_output/
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pip-log.txt
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Data volumes (managed by containers)
+data/neo4j/data/
+data/neo4j/logs/
+data/neo4j/import/
+data/milvus/etcd/
+data/milvus/minio/
+data/redis/
+data/models/*.bin
+data/models/*.pt
+data/models/*.safetensors
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.cache/
+.pytest_cache/
+
+# Container artifacts
+*.tar

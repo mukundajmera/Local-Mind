@@ -1,0 +1,2 @@
+# Model cache directory
+# Downloaded models (Kokoro TTS, embeddings, etc.) are stored here.

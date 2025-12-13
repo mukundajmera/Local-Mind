@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   Sovereign Cognitive Engine - Global Styles
+   Glassmorphism Design System
+   ============================================ */
+
+/* Custom font imports */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* CSS Variables */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --cyber-blue: #00d4ff;
+  --cyber-purple: #a855f7;
+  --cyber-pink: #ec4899;
+}
+
+/* Base styles */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--mesh-gradient);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Mesh gradient background */
+.mesh-gradient {
+  background: 
+    radial-gradient(ellipse at 20% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 40%, rgba(236, 72, 153, 0.10) 0%, transparent 50%),
+    linear-gradient(180deg, rgb(5, 5, 15) 0%, rgb(10, 10, 25) 50%, rgb(5, 5, 15) 100%);
+  background-size: 200% 200%;
+  animation: gradient-shift 20s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
+/* Glass panel component */
+@layer components {
+  .glass-panel {
+    @apply bg-glass-100 backdrop-blur-glass border border-glass rounded-2xl;
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-panel-elevated {
+    @apply bg-glass-200 backdrop-blur-heavy border border-glass-bright rounded-2xl;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-button {
+    @apply px-4 py-2 bg-glass-200 backdrop-blur-glass border border-glass rounded-lg;
+    @apply hover:bg-glass-300 hover:border-glass-bright transition-all duration-200;
+    @apply active:scale-95;
+  }
+
+  .glass-input {
+    @apply w-full px-4 py-3 bg-glass-100 backdrop-blur-glass;
+    @apply border border-glass rounded-xl;
+    @apply focus:outline-none focus:border-cyber-blue focus:ring-1 focus:ring-cyber-blue/30;
+    @apply placeholder:text-white/30 transition-all duration-200;
+  }
+
+  .cyber-glow {
+    @apply relative;
+  }
+
+  .cyber-glow::before {
+    content: '';
+    @apply absolute inset-0 rounded-full opacity-50 blur-xl -z-10;
+    background: linear-gradient(135deg, var(--cyber-blue), var(--cyber-purple));
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(0, 212, 255, 0.3);
+  color: white;
+}
+
+/* Focus ring for accessibility */
+*:focus-visible {
+  @apply outline-none ring-2 ring-cyber-blue/50 ring-offset-2 ring-offset-transparent;
+}
+
+/* Panel section headers */
+.panel-header {
+  @apply px-4 py-3 border-b border-glass text-sm font-medium text-white/70 uppercase tracking-wider;
+}
+
+/* Audio waveform placeholder */
+.waveform-container {
+  @apply h-16 bg-glass-50 rounded-lg overflow-hidden;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 212, 255, 0.1) 2px,
+    rgba(0, 212, 255, 0.1) 3px
+  );
+}
+
+/* Node glow effect for graph */
+.node-glow {
+  filter: drop-shadow(0 0 8px var(--cyber-blue));
+}

@@ -1,0 +1,28 @@
+# ============================================
+# Sovereign Cognitive Engine - Acoustic Engine
+# TTS/Voice Synthesis Dependencies
+# ============================================
+
+# Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+
+# PyTorch (CUDA enabled)
+torch>=2.1.0
+torchaudio>=2.1.0
+
+# TTS Models
+# Kokoro-82M compatible stack
+transformers==4.46.0
+soundfile==0.12.1
+scipy==1.14.1
+librosa==0.10.2.post1
+
+# Audio Processing
+numpy==1.26.4
+pydub==0.25.1
+
+# Utilities
+pydantic==2.9.2
+httpx==0.28.0
+structlog==24.4.0

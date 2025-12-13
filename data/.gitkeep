@@ -1,0 +1,8 @@
+# Sovereign Cognitive Engine - Data Directory
+# This directory contains persistent data volumes for all services.
+# DO NOT commit actual data to version control.
+
+/neo4j/
+/milvus/
+/redis/
+/models/

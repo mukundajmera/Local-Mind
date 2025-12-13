@@ -1,0 +1,39 @@
+# ============================================
+# Sovereign Cognitive Engine - Orchestrator
+# Core Dependencies
+# ============================================
+
+# Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Task Queue
+celery[redis]==5.4.0
+redis==5.2.0
+
+# Database Clients
+neo4j==5.25.0
+pymilvus==2.4.9
+
+# AI/ML
+langchain==0.3.7
+langchain-community==0.3.7
+sentence-transformers==3.3.0
+
+# Document Processing
+unstructured[pdf]==0.16.5
+tiktoken==0.8.0
+
+# Utilities
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+httpx==0.28.0
+tenacity==9.0.0
+
+# Observability
+structlog==24.4.0
+prometheus-client==0.21.0
+loguru==0.7.2
+
