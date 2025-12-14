@@ -6,8 +6,9 @@ Environment-based settings using pydantic-settings.
 
 from functools import lru_cache
 from typing import Optional
+import sys
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -91,6 +92,48 @@ class Settings(BaseSettings):
     def milvus_uri(self) -> str:
         """Construct Milvus URI from host and port."""
         return f"http://{self.milvus_host}:{self.milvus_port}"
+    
+    @field_validator("neo4j_password")
+    @classmethod
+    def validate_neo4j_password(cls, v: str) -> str:
+        """Validate Neo4j password is not empty or default."""
+        if not v or v.strip() == "":
+            raise ValueError("NEO4J_PASSWORD must not be empty")
+        if v in ["neo4j", "password", "changeme", "localmind2024"]:
+            print(
+                "⚠️  WARNING: Using a default/weak Neo4j password. "
+                "Set a strong password in production!",
+                file=sys.stderr
+            )
+        return v
+    
+    @field_validator("embedding_dimension")
+    @classmethod
+    def validate_embedding_dimension(cls, v: int) -> int:
+        """Validate embedding dimension is reasonable."""
+        if v < 1 or v > 4096:
+            raise ValueError("embedding_dimension must be between 1 and 4096")
+        return v
+    
+    @field_validator("chunk_size_tokens")
+    @classmethod
+    def validate_chunk_size(cls, v: int) -> int:
+        """Validate chunk size is reasonable."""
+        if v < 100:
+            raise ValueError("chunk_size_tokens must be at least 100")
+        if v > 8000:
+            raise ValueError("chunk_size_tokens should not exceed 8000 (context limits)")
+        return v
+    
+    @model_validator(mode="after")
+    def validate_chunk_overlap(self) -> "Settings":
+        """Validate chunk overlap is less than chunk size."""
+        if self.chunk_overlap_tokens >= self.chunk_size_tokens:
+            raise ValueError(
+                f"chunk_overlap_tokens ({self.chunk_overlap_tokens}) must be less than "
+                f"chunk_size_tokens ({self.chunk_size_tokens})"
+            )
+        return self
 
 
 @lru_cache
