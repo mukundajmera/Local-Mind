@@ -25,8 +25,13 @@ from exceptions import (
     SearchError,
     ValidationError,
 )
-from connection_pool import ConnectionPool
-from circuit_breaker import CircuitBreakerOpenError
+try:
+    from .connection_pool import ConnectionPool
+    from .circuit_breaker import CircuitBreakerOpenError
+except ImportError:
+    # Fallback for direct script execution
+    from connection_pool import ConnectionPool
+    from circuit_breaker import CircuitBreakerOpenError
 import uuid
 import time
 from starlette.middleware.base import BaseHTTPMiddleware

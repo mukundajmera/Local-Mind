@@ -7,9 +7,15 @@ Centralized connection pool management for database clients.
 from typing import Optional
 from neo4j import AsyncGraphDatabase, AsyncDriver
 from pymilvus import MilvusClient
-from config import Settings, get_settings
-from logging_config import get_logger
-from circuit_breaker import CircuitBreaker
+try:
+    from .config import Settings, get_settings
+    from .logging_config import get_logger
+    from .circuit_breaker import CircuitBreaker
+except ImportError:
+    # Fallback for direct script execution
+    from config import Settings, get_settings
+    from logging_config import get_logger
+    from circuit_breaker import CircuitBreaker
 import asyncio
 
 logger = get_logger(__name__)

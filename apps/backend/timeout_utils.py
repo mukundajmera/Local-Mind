@@ -7,7 +7,11 @@ Timeout enforcement for async operations.
 import asyncio
 from typing import TypeVar, Callable, Any
 from functools import wraps
-from logging_config import get_logger
+try:
+    from .logging_config import get_logger
+except ImportError:
+    # Fallback for direct script execution
+    from logging_config import get_logger
 
 logger = get_logger(__name__)
 

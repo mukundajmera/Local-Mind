@@ -5,12 +5,16 @@ Rate limiting and backpressure management.
 """
 
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
-from logging_config import get_logger
+try:
+    from .logging_config import get_logger
+except ImportError:
+    # Fallback for direct script execution
+    from logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -105,7 +109,7 @@ class RateLimiter:
         
         return self._buckets[client_id]
     
-    def check_rate_limit(self, client_id: str) -> tuple[bool, Optional[float]]:
+    def check_rate_limit(self, client_id: str) -> Tuple[bool, Optional[float]]:
         """
         Check if request is allowed under rate limits.
         

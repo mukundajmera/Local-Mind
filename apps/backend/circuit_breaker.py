@@ -8,7 +8,11 @@ import time
 from enum import Enum
 from typing import Callable, Optional, Any
 from dataclasses import dataclass, field
-from logging_config import get_logger
+try:
+    from .logging_config import get_logger
+except ImportError:
+    # Fallback for direct script execution
+    from logging_config import get_logger
 
 logger = get_logger(__name__)
 
