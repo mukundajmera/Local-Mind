@@ -103,7 +103,8 @@ Return ONLY the JSON object, no markdown formatting or explanations."""
             settings: Application settings
         """
         self.settings = settings or get_settings()
-        self.base_url = base_url or "http://inference-engine:8000/v1"
+        # Default to Ollama local endpoint if not specified
+        self.base_url = base_url or self.settings.llm_base_url or "http://localhost:11434/v1"
         self.model = model or self.settings.llm_model
         self._client: Optional[httpx.AsyncClient] = None
     

@@ -12,12 +12,65 @@
 
 /* CSS Variables */
 :root {
+  color-scheme: dark;
   --glass-bg: rgba(255, 255, 255, 0.05);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   --cyber-blue: #00d4ff;
   --cyber-purple: #a855f7;
   --cyber-pink: #ec4899;
+  --gradient-dark: radial-gradient(ellipse at 20% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 40%, rgba(236, 72, 153, 0.10) 0%, transparent 50%),
+    linear-gradient(180deg, rgb(5, 5, 15) 0%, rgb(10, 10, 25) 50%, rgb(5, 5, 15) 100%);
+  --gradient-light: radial-gradient(ellipse at 20% 80%, rgba(59, 130, 246, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 20%, rgba(236, 72, 153, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(94, 234, 212, 0.16) 0%, transparent 55%),
+    linear-gradient(180deg, #eef3ff 0%, #f8fbff 55%, #eef3ff 100%);
+  --color-bg-body: var(--gradient-dark);
+  --color-bg-panel: rgba(12, 14, 24, 0.72);
+  --color-bg-panel-elevated: rgba(18, 22, 36, 0.82);
+  --color-border-panel: rgba(255, 255, 255, 0.12);
+  --color-border-panel-bright: rgba(255, 255, 255, 0.2);
+  --color-text-primary: rgba(255, 255, 255, 0.92);
+  --color-text-muted: rgba(255, 255, 255, 0.6);
+  --color-text-faint: rgba(255, 255, 255, 0.4);
+  --chip-bg: rgba(0, 212, 255, 0.18);
+  --chip-text: rgba(255, 255, 255, 0.88);
+  --badge-bg: rgba(168, 85, 247, 0.16);
+  --badge-text: rgba(168, 85, 247, 0.9);
+}
+
+body[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg-body: var(--gradient-dark);
+  --color-bg-panel: rgba(12, 14, 24, 0.72);
+  --color-bg-panel-elevated: rgba(18, 22, 36, 0.82);
+  --color-border-panel: rgba(255, 255, 255, 0.12);
+  --color-border-panel-bright: rgba(255, 255, 255, 0.2);
+  --color-text-primary: rgba(255, 255, 255, 0.92);
+  --color-text-muted: rgba(255, 255, 255, 0.6);
+  --color-text-faint: rgba(255, 255, 255, 0.4);
+  --chip-bg: rgba(0, 212, 255, 0.18);
+  --chip-text: rgba(255, 255, 255, 0.88);
+  --badge-bg: rgba(168, 85, 247, 0.16);
+  --badge-text: rgba(168, 85, 247, 0.9);
+}
+
+body[data-theme="light"] {
+  color-scheme: light;
+  --color-bg-body: var(--gradient-light);
+  --color-bg-panel: rgba(255, 255, 255, 0.82);
+  --color-bg-panel-elevated: rgba(255, 255, 255, 0.92);
+  --color-border-panel: rgba(15, 23, 42, 0.08);
+  --color-border-panel-bright: rgba(30, 64, 175, 0.15);
+  --color-text-primary: rgba(15, 23, 42, 0.92);
+  --color-text-muted: rgba(15, 23, 42, 0.64);
+  --color-text-faint: rgba(15, 23, 42, 0.4);
+  --chip-bg: rgba(59, 130, 246, 0.14);
+  --chip-text: rgba(30, 58, 138, 0.9);
+  --badge-bg: rgba(168, 85, 247, 0.12);
+  --badge-text: rgba(91, 33, 182, 0.9);
 }
 
 /* Base styles */
@@ -29,17 +82,14 @@ body {
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background: var(--mesh-gradient);
-  color: rgba(255, 255, 255, 0.9);
+  background: var(--color-bg-body);
+  color: var(--color-text-primary);
+  transition: background 0.6s ease, color 0.3s ease;
 }
 
 /* Mesh gradient background */
 .mesh-gradient {
-  background: 
-    radial-gradient(ellipse at 20% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 40% 40%, rgba(236, 72, 153, 0.10) 0%, transparent 50%),
-    linear-gradient(180deg, rgb(5, 5, 15) 0%, rgb(10, 10, 25) 50%, rgb(5, 5, 15) 100%);
+  background: var(--color-bg-body);
   background-size: 200% 200%;
   animation: gradient-shift 20s ease infinite;
 }
@@ -55,11 +105,15 @@ body {
   .glass-panel {
     @apply bg-glass-100 backdrop-blur-glass border border-glass rounded-2xl;
     box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    background: var(--color-bg-panel);
+    border-color: var(--color-border-panel);
   }
 
   .glass-panel-elevated {
     @apply bg-glass-200 backdrop-blur-heavy border border-glass-bright rounded-2xl;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    background: var(--color-bg-panel-elevated);
+    border-color: var(--color-border-panel-bright);
   }
 
   .glass-button {
@@ -83,6 +137,30 @@ body {
     content: '';
     @apply absolute inset-0 rounded-full opacity-50 blur-xl -z-10;
     background: linear-gradient(135deg, var(--cyber-blue), var(--cyber-purple));
+  }
+
+  .theme-text-primary {
+    color: var(--color-text-primary);
+  }
+
+  .theme-text-muted {
+    color: var(--color-text-muted);
+  }
+
+  .theme-text-faint {
+    color: var(--color-text-faint);
+  }
+
+  .theme-chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium;
+    background: var(--chip-bg);
+    color: var(--chip-text);
+  }
+
+  .theme-badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium uppercase tracking-wide;
+    background: var(--badge-bg);
+    color: var(--badge-text);
   }
 }
 
@@ -119,7 +197,9 @@ body {
 
 /* Panel section headers */
 .panel-header {
-  @apply px-4 py-3 border-b border-glass text-sm font-medium text-white/70 uppercase tracking-wider;
+  @apply px-4 py-3 border-b border-glass text-sm font-medium uppercase tracking-wider;
+  color: var(--color-text-muted);
+  border-color: var(--color-border-panel);
 }
 
 /* Audio waveform placeholder */

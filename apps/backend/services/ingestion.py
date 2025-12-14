@@ -15,6 +15,12 @@ from neo4j.exceptions import Neo4jError
 from pymilvus import MilvusClient, MilvusException
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+# Third-party libraries
+from sentence_transformers import SentenceTransformer
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+
 from config import Settings, get_settings
 from schemas import (
     ExtractionResult,
@@ -33,9 +39,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
-    Placeholder embedding service.
-    
-    TODO: Implement with sentence-transformers or external API.
+    Embedding service using SentenceTransformers.
     """
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
@@ -43,6 +47,12 @@ class EmbeddingService:
         self.dimension = 384  # all-MiniLM-L6-v2 dimension
         self._model = None  # Lazy load
     
+    def _get_model(self):
+        if self._model is None:
+            logger.info(f"Loading embedding model: {self.model_name}")
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
     async def embed_text(self, text: str) -> list[float]:
         """
         Generate embedding vector for text.
@@ -53,59 +63,87 @@ class EmbeddingService:
         Returns:
             List of floats representing the embedding vector
         """
-        # STUB: Return deterministic mock embedding based on text hash
-        # Real implementation would use sentence-transformers
-        text_hash = hashlib.sha256(text.encode()).hexdigest()
-        mock_embedding = [
-            float(int(text_hash[i:i+2], 16)) / 255.0
-            for i in range(0, min(len(text_hash), self.dimension * 2), 2)
-        ]
-        # Pad to full dimension if needed
-        mock_embedding.extend([0.0] * (self.dimension - len(mock_embedding)))
-        return mock_embedding[:self.dimension]
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Run CPU-bound model in executor
+        embedding = await loop.run_in_executor(
+            None,
+            lambda: self._get_model().encode(text, convert_to_numpy=False)
+        )
+        return embedding
     
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed multiple texts in batch."""
-        return [await self.embed_text(t) for t in texts]
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        embeddings = await loop.run_in_executor(
+            None,
+            lambda: self._get_model().encode(texts, convert_to_numpy=False)
+        )
+        return embeddings
 
 
 class LLMService:
     """
-    Placeholder LLM service for entity/relationship extraction.
-    
-    TODO: Implement with LangChain + Ollama/OpenAI.
+    LLM service for entity/relationship extraction using Ollama.
     """
     
     def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
+        self._llm = None
+        
+    def _get_llm(self):
+        if self._llm is None:
+            self._llm = ChatOllama(
+                model=self.model,
+                base_url=self.base_url,
+                temperature=0,
+                format="json" # Important for structured output resilience
+            )
+        return self._llm
     
     async def extract_entities(self, chunk_text: str, chunk_id: str) -> ExtractionResult:
         """
         Extract entities and relationships from text chunk.
-        
-        Args:
-            chunk_text: The text to analyze
-            chunk_id: ID of the source chunk for provenance tracking
-            
-        Returns:
-            ExtractionResult with entities and relationships
-            
-        Note:
-            Real implementation should use structured output:
-            
-            ```python
-            from langchain_core.prompts import ChatPromptTemplate
-            from langchain_ollama import ChatOllama
-            
-            llm = ChatOllama(model=self.model).with_structured_output(ExtractionResult)
-            result = await llm.ainvoke(prompt)
-            ```
         """
-        # STUB: Return empty extraction result
-        # In production, this would call an LLM with a carefully crafted prompt
-        logger.debug(f"[STUB] Extract entities from chunk {chunk_id}")
-        return ExtractionResult(entities=[], relationships=[])
+        llm = self._get_llm()
+        
+        # We use a Pydantic parser to ensure valid JSON structure matches our schema
+        parser = PydanticOutputParser(pydantic_object=ExtractionResult)
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are an expert knowledge graph extractor. Extract entities and relationships from the text. "
+                       "Return ONLY JSON matching the requested schema. "
+                       "\n{format_instructions}"),
+            ("user", "Text chunk ({chunk_id}):\n{text}")
+        ])
+        
+        chain = prompt | llm | parser
+        
+        try:
+            result = await chain.ainvoke({
+                "text": chunk_text,
+                "chunk_id": chunk_id,
+                "format_instructions": parser.get_format_instructions()
+            })
+            
+            # Post-process to ensure chunk_ids are set (LLM might miss this)
+            for entity in result.entities:
+                if not entity.chunk_ids:
+                    entity.chunk_ids = [chunk_id]
+            for rel in result.relationships:
+                if not rel.chunk_ids:
+                    rel.chunk_ids = [chunk_id]
+                    
+            return result
+            
+        except Exception as e:
+            logger.error(f"LLM extraction failed for chunk {chunk_id}: {e}")
+            # Return empty result on failure to allow pipeline to continue
+            return ExtractionResult(entities=[], relationships=[])
 
 
 # =============================================================================

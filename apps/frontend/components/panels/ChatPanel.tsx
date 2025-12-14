@@ -4,8 +4,47 @@
  * Chat Panel - Center cognitive stream interface
  */
 
-import { useState, useRef, useEffect } from "react";
-import { useFocusedNode } from "@/store/graphStore";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useFocusedNode, useGraphStore } from "@/store/graphStore";
+import { ContextComposer } from "@/components/primitives/ContextComposer";
+
+const STRATEGIES = [
+    {
+        id: "insight" as const,
+        label: "Graph Insight",
+        description: "Ground answers in relationships across the knowledge graph.",
+    },
+    {
+        id: "sources" as const,
+        label: "Source Citations",
+        description: "Quote supporting passages with document titles and page numbers.",
+    },
+    {
+        id: "podcast" as const,
+        label: "Podcast Script",
+        description: "Return a dialogue-ready narrative for audio synthesis.",
+    },
+] as const;
+
+type StrategyKey = (typeof STRATEGIES)[number]["id"];
+
+const PROMPT_SUGGESTIONS = [
+    {
+        id: "daily-brief",
+        label: "Daily Brief",
+        prompt: "Give me a daily brief of the most important updates inside this notebook.",
+    },
+    {
+        id: "compare",
+        label: "Compare Perspectives",
+        prompt: "Compare the differing viewpoints or findings across my sources on this topic.",
+    },
+    {
+        id: "action-items",
+        label: "Action Items",
+        prompt: "List the key action items and open questions I should follow up on next.",
+    },
+] as const;
 
 interface Message {
     id: string;
@@ -45,8 +84,42 @@ export function ChatPanel() {
     const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [activeStrategies, setActiveStrategies] = useState<StrategyKey[]>(["insight", "sources"]);
     const scrollRef = useRef<HTMLDivElement>(null);
     const focusedNode = useFocusedNode();
+    const { selectedNodeIds } = useGraphStore();
+    const contextNodeIds = useMemo(() => {
+        const ids = Array.from(selectedNodeIds);
+        if (ids.length > 0) {
+            return ids;
+        }
+        if (focusedNode) {
+            return [focusedNode.id];
+        }
+        return [];
+    }, [selectedNodeIds, focusedNode]);
+
+    const toggleStrategy = (strategy: StrategyKey) => {
+        setActiveStrategies((prev) =>
+            prev.includes(strategy)
+                ? prev.filter((s) => s !== strategy)
+                : [...prev, strategy]
+        );
+    };
+
+    const applyStrategy = (strategy: StrategyKey) => {
+        setActiveStrategies((prev) =>
+            prev.includes(strategy) ? prev : [...prev, strategy]
+        );
+    };
+
+    const handleSuggestion = (prompt: string) => {
+        setInput(prompt);
+        const textarea = scrollRef.current?.parentElement?.querySelector<HTMLTextAreaElement>("textarea");
+        if (textarea) {
+            textarea.focus();
+        }
+    };
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -67,21 +140,52 @@ export function ChatPanel() {
         };
 
         setMessages((prev) => [...prev, userMessage]);
+        const userInput = input;
         setInput("");
         setIsLoading(true);
 
-        // Simulate AI response (replace with actual API call)
-        setTimeout(() => {
+        try {
+            // Call the backend chat API
+            const response = await fetch("http://localhost:8000/api/v1/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    message: userInput,
+                    context_node_ids: contextNodeIds,
+                    strategies: activeStrategies,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: "Unknown error" }));
+                throw new Error(error.detail || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
             const assistantMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: "assistant",
-                content: `I understand you're asking about "${input}". This is a placeholder response. In production, this would query the knowledge graph and generate a contextual answer.`,
+                content: data.response,
                 timestamp: new Date(),
             };
             setMessages((prev) => [...prev, assistantMessage]);
+        } catch (error) {
+            console.error("Chat API error:", error);
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content: `⚠️ Error: ${error instanceof Error ? error.message : "Failed to connect to LLM service"}. Please ensure the backend is running and LM Studio is active.`,
+                timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, errorMessage]);
+        } finally {
             setIsLoading(false);
-        }, 1500);
+        }
     };
+
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -105,13 +209,16 @@ export function ChatPanel() {
     const handleQuickAction = (action: "podcast" | "summarize" | "deep-dive") => {
         switch (action) {
             case "podcast":
-                appendAssistantMessage("Generating podcast preview for the current knowledge selection...");
+                applyStrategy("podcast");
+                setInput("Create a podcast-style script with two hosts discussing the highlighted context.");
                 break;
             case "summarize":
-                appendAssistantMessage("Summarizing current knowledge graph context...");
+                applyStrategy("insight");
+                setInput("Summarize the current knowledge graph focus with bullet points and key evidence.");
                 break;
             case "deep-dive":
-                appendAssistantMessage("Initiating deep dive reasoning session with highlighted nodes...");
+                applyStrategy("sources");
+                setInput("Run a deep dive analysis citing the most relevant passages for this question.");
                 break;
             default:
                 break;
@@ -128,6 +235,43 @@ export function ChatPanel() {
                         Context: {focusedNode.name}
                     </span>
                 )}
+            </div>
+
+            <ContextComposer />
+
+            <div className="px-4 py-3 border-b border-glass flex flex-wrap items-center gap-3" data-testid="strategy-selector">
+                <span className="text-[11px] uppercase tracking-wide text-white/40">Response Strategies</span>
+                {STRATEGIES.map((strategy) => (
+                    <label
+                        key={strategy.id}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
+                            activeStrategies.includes(strategy.id)
+                                ? "border-cyber-blue/60 bg-cyber-blue/20 text-cyber-blue"
+                                : "border-glass text-white/60 hover:text-white"
+                        } transition-colors text-xs`}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={activeStrategies.includes(strategy.id)}
+                            onChange={() => toggleStrategy(strategy.id)}
+                            className="accent-cyber-blue"
+                        />
+                        <span>{strategy.label}</span>
+                    </label>
+                ))}
+            </div>
+
+            <div className="px-4 py-2 border-b border-glass flex flex-wrap gap-2" data-testid="chat-suggestions">
+                {PROMPT_SUGGESTIONS.map((suggestion) => (
+                    <button
+                        key={suggestion.id}
+                        onClick={() => handleSuggestion(suggestion.prompt)}
+                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors"
+                        type="button"
+                    >
+                        {suggestion.label}
+                    </button>
+                ))}
             </div>
 
             {/* Messages */}

@@ -295,3 +295,100 @@ class GraphAnalytics:
                 "neighbor_count": record["neighbor_count"],
                 "hops": hops,
             }
+    async def get_graph_data(self, limit: int = 500) -> dict:
+        """
+        Get nodes and edges for 3D graph visualization.
+        
+        Args:
+            limit: Maximum number of relationships to return
+            
+        Returns:
+            Dict with 'nodes' and 'links' list
+        """
+        if not self._neo4j_driver:
+            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
+        
+        async with self._neo4j_driver.session() as session:
+            # We fetch relationships and their connected nodes
+            # This ensures we don't have dangling links
+            result = await session.run(
+                """
+                MATCH (n)-[r:RELATED_TO]-(m)
+                RETURN n, r, m
+                LIMIT $limit
+                """,
+                limit=limit,
+            )
+            
+            nodes = {}
+            links = []
+            
+            async for record in result:
+                n, r, m = record["n"], record["r"], record["m"]
+                
+                # Deduplicate nodes by ID
+                if n["normalized_name"] not in nodes:
+                    nodes[n["normalized_name"]] = {
+                        "id": n["normalized_name"],
+                        "name": n.get("name", n["normalized_name"]),
+                        "type": n.get("type", "CONCEPT"),
+                        "description": n.get("description", ""),
+                        "val": 1 # for size
+                    }
+                
+                if m["normalized_name"] not in nodes:
+                    nodes[m["normalized_name"]] = {
+                        "id": m["normalized_name"],
+                        "name": m.get("name", m["normalized_name"]),
+                        "type": m.get("type", "CONCEPT"),
+                        "description": m.get("description", ""),
+                        "val": 1
+                    }
+                    
+                links.append({
+                    "source": n["normalized_name"],
+                    "target": m["normalized_name"],
+                    "type": r.get("type", "RELATED_TO"),
+                    "weight": r.get("weight", 1.0)
+                })
+                
+            return {
+                "nodes": list(nodes.values()),
+                "links": links
+            }
+
+    async def get_all_documents(self) -> list[dict]:
+        """
+        Get a list of all ingested documents.
+
+        Returns:
+            List of dicts with document metadata.
+        """
+        if not self._neo4j_driver:
+             raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
+
+        async with self._neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d, chunk_count
+                ORDER BY d.upload_date DESC
+                """
+            )
+            
+            documents = []
+            async for record in result:
+                d = record["d"]
+                documents.append({
+                    "id": d["id"],
+                    "title": d.get("filename", "Untitled"),
+                    "filename": d.get("filename", ""),
+                    "uploaded_at": d.get("upload_date", ""),
+                    "file_size": d.get("file_size_bytes", 0),
+                    "chunk_count": record["chunk_count"],
+                    "status": "ready" # Logic could be more complex
+                })
+            
+            return documents

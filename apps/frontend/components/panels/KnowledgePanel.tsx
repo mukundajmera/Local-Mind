@@ -4,24 +4,33 @@
  * Knowledge Panel - Left sidebar with graph and sources
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { GraphView } from "@/components/GraphView";
 import { useGraphStore, useFocusedNode, useGraphData } from "@/store/graphStore";
+import { useUIStore } from "@/store/uiStore";
+import { CollapseIcon } from "../primitives/CollapseIcon";
 
-// Sample sources for development
-const SAMPLE_SOURCES = [
-    { id: "1", title: "Quantum Computing Fundamentals.pdf", pages: 42 },
-    { id: "2", title: "Google Sycamore Paper.pdf", pages: 18 },
-    { id: "3", title: "IBM Quantum Research Notes.pdf", pages: 96 },
-    { id: "4", title: "Nvidia QODA Launch.md", pages: 12 },
-    { id: "5", title: "Microsoft Quantum Architecture.pdf", pages: 67 },
-];
+interface Source {
+    id: string;
+    title: string;
+    filename: string;
+    pages?: number;
+    uploaded_at: string;
+    status: string;
+}
 
 export function KnowledgePanel() {
     const focusedNode = useFocusedNode();
     const graphData = useGraphData();
-    const { clearFocus, toggleNodeSelection, selectedNodeIds } = useGraphStore();
+    const { clearFocus, toggleNodeSelection, selectedNodeIds, setGraphData } = useGraphStore();
     const [systemNotice, setSystemNotice] = useState<string | null>(null);
+
+    // Sources state
+    const [sources, setSources] = useState<Source[]>([]);
+    const [isLoadingSources, setIsLoadingSources] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [showUploadModal, setShowUploadModal] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const summary = useMemo(() => {
         const totalNodes = graphData.nodes.length;
@@ -33,6 +42,100 @@ export function KnowledgePanel() {
     const appendNotice = (message: string) => {
         setSystemNotice(message);
         setTimeout(() => setSystemNotice(null), 4000);
+    };
+
+    // Fetch sources from API
+    const fetchSources = useCallback(async () => {
+        setIsLoadingSources(true);
+        try {
+            const response = await fetch("http://localhost:8000/api/v1/sources");
+            if (response.ok) {
+                const data = await response.json();
+                setSources(data.sources || []);
+            }
+        } catch (error) {
+            console.error("Failed to fetch sources:", error);
+        } finally {
+            setIsLoadingSources(false);
+        }
+    }, []);
+
+    // Fetch graph data from API
+    const fetchGraphData = useCallback(async () => {
+        try {
+            const response = await fetch("http://localhost:8000/api/v1/graph");
+            if (response.ok) {
+                const data = await response.json();
+                if (data.nodes && data.nodes.length > 0) {
+                    setGraphData(data);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch graph:", error);
+        }
+    }, [setGraphData]);
+
+    // Fetch data on mount
+    useEffect(() => {
+        fetchSources();
+        fetchGraphData();
+    }, [fetchSources, fetchGraphData]);
+
+    // Handle file upload
+    const handleFileUpload = async (file: File) => {
+        setIsUploading(true);
+        appendNotice(`Uploading ${file.name}...`);
+
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const response = await fetch("http://localhost:8000/api/v1/sources/upload", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: "Upload failed" }));
+                throw new Error(error.detail || `HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            appendNotice(`✓ Uploaded ${file.name}: ${result.chunks_created} chunks, ${result.entities_extracted} entities`);
+
+            // Refresh sources and graph
+            await fetchSources();
+            await fetchGraphData();
+        } catch (error) {
+            console.error("Upload error:", error);
+            appendNotice(`✗ Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        } finally {
+            setIsUploading(false);
+            setShowUploadModal(false);
+        }
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            handleFileUpload(file);
+        }
+        // Reset input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (file) {
+            handleFileUpload(file);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
     };
 
     return (
@@ -105,48 +208,75 @@ export function KnowledgePanel() {
             {/* Sources section */}
             <div className="border-t border-glass" data-testid="sources-section">
                 <div className="panel-header flex items-center justify-between">
-                    <span>Sources</span>
+                    <span>Sources ({sources.length})</span>
                     <button
-                        className="text-xs text-cyber-blue hover:text-white transition-colors"
-                        onClick={() => appendNotice("Source management coming soon.")}
-                        data-testid="sources-manage"
+                        className="text-xs text-cyber-blue hover:text-white transition-colors flex items-center gap-1"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        data-testid="sources-add"
                     >
-                        Manage
+                        {isUploading ? "Uploading..." : "+ Add Source"}
                     </button>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.md,.txt,.docx"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        data-testid="file-input"
+                    />
                 </div>
-                <div className="p-2 space-y-1 max-h-40 overflow-y-auto" data-testid="sources-list">
-                    {SAMPLE_SOURCES.map((source) => (
+                <div
+                    className="p-2 space-y-1 max-h-40 overflow-y-auto"
+                    data-testid="sources-list"
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                >
+                    {isLoadingSources ? (
+                        <div className="text-xs text-white/50 text-center py-4">Loading sources...</div>
+                    ) : sources.length === 0 ? (
                         <div
-                            key={source.id}
-                            className="flex items-center gap-2 p-2 rounded-lg hover:bg-glass-100 cursor-pointer transition-colors"
-                            data-testid={`source-${source.id}`}
-                            onClick={() => appendNotice(`Selected source: ${source.title}`)}
+                            className="text-xs text-white/50 text-center py-4 border-2 border-dashed border-glass rounded-lg cursor-pointer hover:border-cyber-blue/50 transition-colors"
+                            onClick={() => fileInputRef.current?.click()}
                         >
-                            <div className="w-8 h-8 rounded bg-cyber-purple/20 flex items-center justify-center">
-                                <svg
-                                    className="w-4 h-4 text-cyber-purple"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                    />
-                                </svg>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-sm text-white/90 truncate">
-                                    {source.title}
-                                </div>
-                                <div className="text-xs text-white/50">
-                                    {source.pages} pages
-                                </div>
-                            </div>
+                            <div className="mb-1">📄</div>
+                            <div>Drop files here or click to upload</div>
+                            <div className="text-white/30 mt-1">PDF, Markdown, or TXT</div>
                         </div>
-                    ))}
+                    ) : (
+                        sources.map((source) => (
+                            <div
+                                key={source.id}
+                                className="flex items-center gap-2 p-2 rounded-lg hover:bg-glass-100 cursor-pointer transition-colors"
+                                data-testid={`source-${source.id}`}
+                                onClick={() => appendNotice(`Selected source: ${source.title}`)}
+                            >
+                                <div className="w-8 h-8 rounded bg-cyber-purple/20 flex items-center justify-center">
+                                    <svg
+                                        className="w-4 h-4 text-cyber-purple"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm text-white/90 truncate">
+                                        {source.title}
+                                    </div>
+                                    <div className="text-xs text-white/50">
+                                        {source.status === "ready" ? "✓ Ready" : "⏳ Processing..."}
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
         </div>
