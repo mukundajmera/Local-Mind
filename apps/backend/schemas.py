@@ -5,7 +5,7 @@ Pydantic models for strict type enforcement across the GraphRAG pipeline.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -166,3 +166,67 @@ class HybridSearchResponse(BaseModel):
     vector_count: int = Field(..., description="Results from vector branch before fusion")
     graph_count: int = Field(..., description="Results from graph branch before fusion")
     total_fused: int = Field(..., description="Final deduplicated count after RRF")
+
+
+# =============================================================================
+# Chat Models
+# =============================================================================
+
+class ChatRequest(BaseModel):
+    """Request schema for chat endpoint with optional source filtering."""
+    
+    message: str = Field(..., min_length=1, description="User's query or message")
+    context_node_ids: List[str] = Field(default_factory=list, description="Legacy: Context node IDs")
+    strategies: List[str] = Field(default_factory=list, description="Search strategies to use")
+    source_ids: Optional[List[str]] = Field(
+        default=None, 
+        description="Optional list of document IDs to filter search. If None, searches all documents."
+    )
+
+
+# =============================================================================
+# Briefing Models
+# =============================================================================
+
+class BriefingResponse(BaseModel):
+    """Automated briefing generated after document upload."""
+    
+    summary: str = Field(..., description="1-paragraph overview of the document")
+    key_topics: List[str] = Field(
+        default_factory=list, 
+        description="5-7 key topics or bullet points from the document"
+    )
+    suggested_questions: List[str] = Field(
+        default_factory=list,
+        description="3 follow-up questions for the user to explore"
+    )
+    doc_id: str = Field(..., description="Associated document ID")
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =============================================================================
+# Notes Models
+# =============================================================================
+
+class SavedNote(BaseModel):
+    """User-created note with optional source citation."""
+    
+    note_id: UUID = Field(default_factory=uuid4, description="Unique note identifier")
+    content: str = Field(..., min_length=1, description="Note content")
+    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    source_citation_id: Optional[str] = Field(
+        default=None, 
+        description="Optional reference to a chunk or document ID"
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CreateNoteRequest(BaseModel):
+    """Request schema for creating a new note."""
+    
+    content: str = Field(..., min_length=1, description="Note content")
+    tags: Optional[List[str]] = Field(default=None, description="Tags for categorization")
+    source_citation_id: Optional[str] = Field(
+        default=None,
+        description="Optional reference to a chunk or document ID"
+    )

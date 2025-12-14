@@ -74,6 +74,7 @@ class HybridRetriever:
         k: int = 10,
         vector_weight: float = 0.5,
         graph_weight: float = 0.5,
+        source_ids: Optional[list[str]] = None,
     ) -> HybridSearchResponse:
         """
         Perform hybrid search combining vector and graph retrieval.
@@ -83,17 +84,19 @@ class HybridRetriever:
             k: Number of results to return
             vector_weight: Weight for vector branch in fusion (0-1)
             graph_weight: Weight for graph branch in fusion (0-1)
+            source_ids: Optional list of document IDs to filter search
             
         Returns:
             HybridSearchResponse with ranked, deduplicated results
         """
-        logger.info(f"Hybrid search: '{query[:50]}...' k={k}")
+        filter_msg = f" (filtered to {len(source_ids)} sources)" if source_ids else ""
+        logger.info(f"Hybrid search: '{query[:50]}...' k={k}{filter_msg}")
         
         # 1. Vector branch: semantic similarity search
-        vector_results = await self._vector_search(query, limit=k * 2)
+        vector_results = await self._vector_search(query, limit=k * 2, source_ids=source_ids)
         
         # 2. Graph branch: entity-based traversal
-        graph_results = await self._graph_search(query, limit=k * 2)
+        graph_results = await self._graph_search(query, limit=k * 2, source_ids=source_ids)
         
         # 3. Fuse results using RRF
         fused_results = self._rrf_fuse(
@@ -113,13 +116,19 @@ class HybridRetriever:
         )
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
-    async def _vector_search(self, query: str, limit: int) -> list[SearchResult]:
+    async def _vector_search(
+        self, 
+        query: str, 
+        limit: int,
+        source_ids: Optional[list[str]] = None
+    ) -> list[SearchResult]:
         """
         Search Milvus for semantically similar chunks.
         
         Args:
             query: Search query (will be embedded)
             limit: Maximum results to return
+            source_ids: Optional list of document IDs to filter by
             
         Returns:
             List of SearchResult ordered by similarity (descending)
@@ -128,6 +137,26 @@ class HybridRetriever:
             # Embed the query
             query_embedding = await self.embedding_service.embed_text(query)
             
+            # Build filter expression if source_ids provided
+            filter_expr = None
+            if source_ids:
+                # Validate source_ids are valid UUIDs or strings (basic validation)
+                # Milvus filter syntax: doc_id in ["id1", "id2", ...]
+                # Use proper escaping to prevent injection
+                import re
+                validated_ids = []
+                for sid in source_ids:
+                    # Allow UUID format and alphanumeric with hyphens
+                    if re.match(r'^[a-zA-Z0-9\-]+$', str(sid)):
+                        validated_ids.append(str(sid))
+                    else:
+                        logger.warning(f"Skipping invalid source_id: {sid}")
+                
+                if validated_ids:
+                    escaped_ids = [f'"{sid}"' for sid in validated_ids]
+                    filter_expr = f"doc_id in [{', '.join(escaped_ids)}]"
+                    logger.debug(f"Applying Milvus filter: {filter_expr}")
+            
             # Search Milvus
             search_results = self._milvus_client.search(
                 collection_name=self.settings.milvus_collection,
@@ -135,6 +164,7 @@ class HybridRetriever:
                 anns_field="embedding",
                 limit=limit,
                 output_fields=["id", "doc_id", "text"],
+                filter=filter_expr,
             )
             
             results = []
@@ -157,7 +187,12 @@ class HybridRetriever:
             return []
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
-    async def _graph_search(self, query: str, limit: int) -> list[SearchResult]:
+    async def _graph_search(
+        self, 
+        query: str, 
+        limit: int,
+        source_ids: Optional[list[str]] = None
+    ) -> list[SearchResult]:
         """
         Search Neo4j knowledge graph for related chunks.
         
@@ -166,10 +201,12 @@ class HybridRetriever:
         2. Find matching Entity nodes
         3. Traverse 2-hop neighborhood to find related entities
         4. Return chunks that mention any of these entities
+        5. Filter by source_ids if provided
         
         Args:
             query: Search query (entities extracted via simple heuristics)
             limit: Maximum results to return
+            source_ids: Optional list of document IDs to filter by
             
         Returns:
             List of SearchResult based on graph connectivity
@@ -188,13 +225,24 @@ class HybridRetriever:
                 # 3. OPTIONAL MATCH 2-hop related entities
                 # 4. COLLECT all entities in neighborhood
                 # 5. Find chunks that MENTION any of these entities
-                # 6. Return distinct chunks with relevance score based on mention count
+                # 6. Filter by doc_id if source_ids provided
+                # 7. Return distinct chunks with relevance score based on mention count
                 
-                result = await session.run(
-                    """
+                # Validate source_ids for Neo4j (prevent injection)
+                validated_source_ids = None
+                if source_ids:
+                    import re
+                    validated_source_ids = [
+                        str(sid) for sid in source_ids 
+                        if re.match(r'^[a-zA-Z0-9\-]+$', str(sid))
+                    ]
+                    logger.debug(f"Applying Neo4j source filter for {len(validated_source_ids)} documents")
+                
+                # Use conditional Cypher instead of string interpolation
+                query_cypher = """
                     // Convert query to lowercase terms for matching
-                    WITH $query AS query
-                    WITH split(toLower(query), ' ') AS terms
+                    WITH $query AS query, $source_ids AS source_ids
+                    WITH split(toLower(query), ' ') AS terms, source_ids
                     
                     // Find seed entities matching query terms
                     MATCH (seed:Entity)
@@ -207,22 +255,28 @@ class HybridRetriever:
                     // Collect all entities in neighborhood
                     WITH COLLECT(DISTINCT seed) + 
                          COLLECT(DISTINCT hop1) + 
-                         COLLECT(DISTINCT hop2) AS neighborhood
+                         COLLECT(DISTINCT hop2) AS neighborhood, source_ids
                     UNWIND neighborhood AS entity
                     
                     // Find chunks mentioning these entities
                     MATCH (chunk:Chunk)-[:MENTIONS]->(entity)
+                    WHERE source_ids IS NULL OR size(source_ids) = 0 OR chunk.doc_id IN source_ids
                     
                     // Return chunks with relevance score (mention count)
                     RETURN DISTINCT 
                         chunk.id AS chunk_id,
                         chunk.text AS text,
+                        chunk.doc_id AS doc_id,
                         COUNT(entity) AS mention_count
                     ORDER BY mention_count DESC
                     LIMIT $limit
-                    """,
+                    """
+                
+                result = await session.run(
+                    query_cypher,
                     query=query,
                     limit=limit,
+                    source_ids=validated_source_ids,
                 )
                 
                 results = []
@@ -233,6 +287,7 @@ class HybridRetriever:
                         text=record["text"] or "",
                         score=float(record["mention_count"]),  # Use mention count as score
                         source="graph",
+                        doc_id=record.get("doc_id"),
                         metadata={"rank": rank, "mention_count": record["mention_count"]},
                     ))
                     rank += 1
