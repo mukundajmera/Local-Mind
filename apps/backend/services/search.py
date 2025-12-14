@@ -140,10 +140,22 @@ class HybridRetriever:
             # Build filter expression if source_ids provided
             filter_expr = None
             if source_ids:
+                # Validate source_ids are valid UUIDs or strings (basic validation)
                 # Milvus filter syntax: doc_id in ["id1", "id2", ...]
-                escaped_ids = [f'"{sid}"' for sid in source_ids]
-                filter_expr = f"doc_id in [{', '.join(escaped_ids)}]"
-                logger.debug(f"Applying Milvus filter: {filter_expr}")
+                # Use proper escaping to prevent injection
+                import re
+                validated_ids = []
+                for sid in source_ids:
+                    # Allow UUID format and alphanumeric with hyphens
+                    if re.match(r'^[a-zA-Z0-9\-]+$', str(sid)):
+                        validated_ids.append(str(sid))
+                    else:
+                        logger.warning(f"Skipping invalid source_id: {sid}")
+                
+                if validated_ids:
+                    escaped_ids = [f'"{sid}"' for sid in validated_ids]
+                    filter_expr = f"doc_id in [{', '.join(escaped_ids)}]"
+                    logger.debug(f"Applying Milvus filter: {filter_expr}")
             
             # Search Milvus
             search_results = self._milvus_client.search(
@@ -216,16 +228,21 @@ class HybridRetriever:
                 # 6. Filter by doc_id if source_ids provided
                 # 7. Return distinct chunks with relevance score based on mention count
                 
-                # Build WHERE clause for source filtering
-                source_filter = ""
+                # Validate source_ids for Neo4j (prevent injection)
+                validated_source_ids = None
                 if source_ids:
-                    source_filter = "AND chunk.doc_id IN $source_ids"
-                    logger.debug(f"Applying Neo4j source filter for {len(source_ids)} documents")
+                    import re
+                    validated_source_ids = [
+                        str(sid) for sid in source_ids 
+                        if re.match(r'^[a-zA-Z0-9\-]+$', str(sid))
+                    ]
+                    logger.debug(f"Applying Neo4j source filter for {len(validated_source_ids)} documents")
                 
-                query_cypher = f"""
+                # Use conditional Cypher instead of string interpolation
+                query_cypher = """
                     // Convert query to lowercase terms for matching
-                    WITH $query AS query
-                    WITH split(toLower(query), ' ') AS terms
+                    WITH $query AS query, $source_ids AS source_ids
+                    WITH split(toLower(query), ' ') AS terms, source_ids
                     
                     // Find seed entities matching query terms
                     MATCH (seed:Entity)
@@ -238,12 +255,12 @@ class HybridRetriever:
                     // Collect all entities in neighborhood
                     WITH COLLECT(DISTINCT seed) + 
                          COLLECT(DISTINCT hop1) + 
-                         COLLECT(DISTINCT hop2) AS neighborhood
+                         COLLECT(DISTINCT hop2) AS neighborhood, source_ids
                     UNWIND neighborhood AS entity
                     
                     // Find chunks mentioning these entities
                     MATCH (chunk:Chunk)-[:MENTIONS]->(entity)
-                    WHERE TRUE {source_filter}
+                    WHERE source_ids IS NULL OR size(source_ids) = 0 OR chunk.doc_id IN source_ids
                     
                     // Return chunks with relevance score (mention count)
                     RETURN DISTINCT 
@@ -259,7 +276,7 @@ class HybridRetriever:
                     query_cypher,
                     query=query,
                     limit=limit,
-                    source_ids=source_ids or [],
+                    source_ids=validated_source_ids,
                 )
                 
                 results = []

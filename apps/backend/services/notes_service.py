@@ -135,12 +135,21 @@ class NotesService:
             notes = []
             async for record in result:
                 from datetime import datetime
+                
+                # Handle missing created_at with warning
+                created_at = record["created_at"]
+                if not created_at:
+                    logger.warning(f"Note {record['note_id']} missing created_at timestamp")
+                    created_at_dt = datetime.utcnow()
+                else:
+                    created_at_dt = datetime.fromisoformat(created_at)
+                
                 notes.append(SavedNote(
                     note_id=record["note_id"],
                     content=record["content"],
                     tags=record["tags"] or [],
                     source_citation_id=record["source_citation_id"],
-                    created_at=datetime.fromisoformat(record["created_at"]) if record["created_at"] else datetime.utcnow(),
+                    created_at=created_at_dt,
                 ))
             
             logger.debug(f"Retrieved {len(notes)} notes")
@@ -177,12 +186,21 @@ class NotesService:
                 return None
             
             from datetime import datetime
+            
+            # Handle missing created_at with warning
+            created_at = record["created_at"]
+            if not created_at:
+                logger.warning(f"Note {note_id} missing created_at timestamp")
+                created_at_dt = datetime.utcnow()
+            else:
+                created_at_dt = datetime.fromisoformat(created_at)
+            
             return SavedNote(
                 note_id=record["note_id"],
                 content=record["content"],
                 tags=record["tags"] or [],
                 source_citation_id=record["source_citation_id"],
-                created_at=datetime.fromisoformat(record["created_at"]) if record["created_at"] else datetime.utcnow(),
+                created_at=created_at_dt,
             )
     
     async def delete_note(self, note_id: str) -> bool:

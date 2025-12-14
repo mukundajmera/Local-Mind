@@ -77,10 +77,16 @@ class BriefingService:
         try:
             async with LLMService() as llm:
                 # Construct prompt for structured briefing generation
+                # Limit text length based on model context (configurable via settings)
+                max_text_length = getattr(self.settings, 'briefing_max_chars', 8000)
+                truncated_text = full_text[:max_text_length]
+                if len(full_text) > max_text_length:
+                    logger.info(f"Truncated document from {len(full_text)} to {max_text_length} chars for briefing")
+                
                 prompt = f"""You are an expert document analyst. Analyze the following document and provide a comprehensive briefing.
 
 Document text:
-{full_text[:8000]}  # Limit to ~8000 chars to avoid token limits
+{truncated_text}
 
 Please provide your response in the following JSON format:
 {{
@@ -175,6 +181,10 @@ Guidelines:
             
         Returns:
             BriefingResponse if found, None otherwise
+            
+        Note:
+            For optimal performance with large document counts, ensure an index exists:
+            CREATE INDEX document_id_idx IF NOT EXISTS FOR (d:Document) ON (d.id)
         """
         if not self._neo4j_driver:
             raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
@@ -196,10 +206,19 @@ Guidelines:
                 return None
             
             from datetime import datetime
+            
+            # Handle missing generated_at with warning
+            generated_at = record["generated_at"]
+            if not generated_at:
+                logger.warning(f"Document {doc_id} briefing missing generated_at timestamp")
+                generated_at_dt = datetime.utcnow()
+            else:
+                generated_at_dt = datetime.fromisoformat(generated_at)
+            
             return BriefingResponse(
                 summary=record["summary"],
                 key_topics=record["key_topics"] or [],
                 suggested_questions=record["suggested_questions"] or [],
                 doc_id=doc_id,
-                generated_at=datetime.fromisoformat(record["generated_at"]) if record["generated_at"] else datetime.utcnow(),
+                generated_at=generated_at_dt,
             )

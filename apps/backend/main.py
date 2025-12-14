@@ -516,7 +516,7 @@ async def get_graph():
 
 
 @app.post("/api/v1/chat")
-async def chat(request: "schemas.ChatRequest"):
+async def chat(request: schemas.ChatRequest):
     """
     Conversational interface with the knowledge base.
     
@@ -545,7 +545,12 @@ async def chat(request: "schemas.ChatRequest"):
                         ])
                         # Collect sources for citation
                         sources = [
-                            {"id": r.chunk_id, "score": r.score, "source": r.source, "doc_id": r.doc_id}
+                            {
+                                "id": r.chunk_id, 
+                                "score": r.score, 
+                                "source": r.source, 
+                                "doc_id": getattr(r, 'doc_id', None)
+                            }
                             for r in results.results
                         ]
             except Exception as e:
