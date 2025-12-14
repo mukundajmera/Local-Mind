@@ -1,72 +1,163 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
+# ==============================================================================
+# Local Mind - Git Ignore Configuration
+# ==============================================================================
 
-# Testing
-coverage/
-.nyc_output/
-
-# Build outputs
-.next/
-out/
-build/
-dist/
+# ==============================================================================
+# Python
+# ==============================================================================
+# Virtual environments
+venv/
+.venv/
+env/
+.env.local
 *.egg-info/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .Python
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Environment
-.env
-.env.local
-.env.*.local
-*.env
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg
 
-# Logs
-logs/
-*.log
+# ==============================================================================
+# Node.js / Frontend
+# ==============================================================================
+node_modules/
+.pnp
+.pnp.js
+.npm/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pip-log.txt
 
-# Runtime
-*.pid
-*.seed
-*.pid.lock
+# Next.js
+.next/
+out/
 
-# IDE
+# ==============================================================================
+# Environment Files
+# ==============================================================================
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ==============================================================================
+# IDE / Editor
+# ==============================================================================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
-# Data volumes (managed by containers)
+# ==============================================================================
+# Testing
+# ==============================================================================
+coverage/
+.nyc_output/
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# ==============================================================================
+# Logs & Runtime
+# ==============================================================================
+logs/*.log
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# ==============================================================================
+# Data Volumes (Container-managed)
+# ==============================================================================
+# Neo4j data (persisted by container)
 data/neo4j/data/
 data/neo4j/logs/
 data/neo4j/import/
+
+# Milvus data (persisted by container)
 data/milvus/etcd/
 data/milvus/minio/
+
+# Redis data (persisted by container)
 data/redis/
+
+# Model files (downloaded at runtime)
 data/models/*.bin
 data/models/*.pt
+data/models/*.gguf
 data/models/*.safetensors
 
-# Secrets
+# Uploaded files (user content)
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Cache (generated at runtime)
+data/cache/*
+!data/cache/.gitkeep
+
+# ==============================================================================
+# Secrets & Security
+# ==============================================================================
 *.pem
 *.key
+*.crt
 secrets/
+.secrets/
 
-# Temporary files
+# ==============================================================================
+# Temporary Files
+# ==============================================================================
 tmp/
 temp/
 .tmp/
-.cache/
-.pytest_cache/
+*.tmp
+*.temp
 
-# Container artifacts
+# ==============================================================================
+# Container Artifacts
+# ==============================================================================
 *.tar
+*.tar.gz
+
+# ==============================================================================
+# macOS Specific
+# ==============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ==============================================================================
+# Build Outputs
+# ==============================================================================
+*.o
+*.so
+*.dylib

@@ -1,0 +1,45 @@
+# Backend Python .gitignore
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

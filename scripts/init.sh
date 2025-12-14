@@ -50,7 +50,20 @@ print_info "Checking prerequisites..."
 CONTAINER_CMD=""
 COMPOSE_CMD=""
 
-if command -v nerdctl &> /dev/null; then
+if command -v podman &> /dev/null; then
+    CONTAINER_CMD="podman"
+    if command -v podman-compose &> /dev/null; then
+        COMPOSE_CMD="podman-compose"
+        print_success "Found podman with podman-compose"
+    elif podman compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="podman compose"
+        print_success "Found podman with compose"
+    else
+        print_error "Podman found but no compose available!"
+        print_info "Install podman-compose via pip or system package manager."
+        exit 1
+    fi
+elif command -v nerdctl &> /dev/null; then
     CONTAINER_CMD="nerdctl"
     COMPOSE_CMD="nerdctl compose"
     print_success "Found nerdctl"
@@ -70,22 +83,49 @@ elif command -v docker &> /dev/null; then
         exit 1
     fi
 else
-    print_error "Neither nerdctl nor docker found!"
-    print_error "Please install Docker Desktop or nerdctl first. See SETUP.md"
+    print_error "Neither nerdctl, docker, nor podman found!"
+    print_error "Please install Docker Desktop, Podman, or nerdctl first. See SETUP.md"
     exit 1
 fi
 
+
 print_success "Compose command: $COMPOSE_CMD"
 
-# Check for GPU
-if command -v nvidia-smi &> /dev/null; then
-    GPU_INFO=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-    if [ -n "$GPU_INFO" ]; then
-        print_success "GPU detected: $GPU_INFO"
+# ==============================================================================
+# Check for LM Studio (macOS M3 GPU Acceleration)
+# ==============================================================================
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    print_info "Checking for LM Studio (M3 GPU acceleration)..."
+    
+    # Check if LM Studio server is running
+    if curl -s -f "http://127.0.0.1:1234/v1/models" > /dev/null 2>&1; then
+        print_success "LM Studio is running"
+        
+        # Get loaded model info
+        MODEL_INFO=$(curl -s "http://127.0.0.1:1234/v1/models" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [ -n "$MODEL_INFO" ]; then
+            print_success "Model loaded: $MODEL_INFO"
+        else
+            print_warning "No model loaded in LM Studio"
+            print_info "Please load openai/gpt-oss-20b in LM Studio"
+        fi
+    else
+        print_warning "LM Studio not running! M3 GPU acceleration will not work."
+        print_info "Start LM Studio and load model: openai/gpt-oss-20b"
     fi
 else
-    print_warning "nvidia-smi not found. GPU acceleration may not work."
+    # Linux GPU check
+    if command -v nvidia-smi &> /dev/null; then
+        GPU_INFO=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+        if [ -n "$GPU_INFO" ]; then
+            print_success "GPU detected: $GPU_INFO"
+        fi
+    else
+        print_warning "nvidia-smi not found. GPU acceleration may not work."
+    fi
 fi
+
 
 # ==============================================================================
 # Environment Setup

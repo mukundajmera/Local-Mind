@@ -1,0 +1,23 @@
+"""
+Intelligent Compute Resource Manager - Dependencies
+===================================================
+
+Required:
+- None (pure Python fallback available)
+
+Recommended:
+- psutil: For CPU information
+- torch: For GPU detection (CUDA, ROCm, Metal/MPS)
+- pynvml: For NVIDIA GPU utilization (optional)
+- pyopencl: For OpenCL devices (optional)
+"""
+
+# Core (recommended)
+psutil>=5.9.0
+
+# GPU Detection (install what you need)
+torch>=2.0.0  # For CUDA, ROCm, Metal/MPS detection
+
+# Optional (advanced GPU features)
+# pynvml>=11.5.0  # NVIDIA GPU utilization monitoring
+# pyopencl>=2023.1  # OpenCL device detection
