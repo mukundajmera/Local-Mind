@@ -186,12 +186,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         if not allowed:
             # Return 429 Too Many Requests
-            return HTTPException(
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
                 status_code=429,
-                detail={
+                content={
                     "error": "Rate limit exceeded",
                     "retry_after": retry_after,
-                }
+                },
+                headers={"Retry-After": str(int(retry_after) if retry_after else 60)}
             )
         
         # Periodic cleanup of stale buckets

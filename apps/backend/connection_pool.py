@@ -155,7 +155,9 @@ class ConnectionPool:
             RuntimeError: If pool not initialized
         """
         if not self._initialized or self._neo4j_driver is None:
-            raise RuntimeError("ConnectionPool not initialized. Call initialize() first.")
+            raise RuntimeError(
+                "ConnectionPool not initialized. Use ConnectionPool.get_instance() to get initialized pool."
+            )
         
         return self._neo4j_driver
     
@@ -170,7 +172,9 @@ class ConnectionPool:
             RuntimeError: If pool not initialized
         """
         if not self._initialized or self._milvus_client is None:
-            raise RuntimeError("ConnectionPool not initialized. Call initialize() first.")
+            raise RuntimeError(
+                "ConnectionPool not initialized. Use ConnectionPool.get_instance() to get initialized pool."
+            )
         
         return self._milvus_client
     

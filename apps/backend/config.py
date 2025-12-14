@@ -97,9 +97,20 @@ class Settings(BaseSettings):
     @classmethod
     def validate_neo4j_password(cls, v: str) -> str:
         """Validate Neo4j password is not empty or default."""
+        import logging
+        
         if not v or v.strip() == "":
             raise ValueError("NEO4J_PASSWORD must not be empty")
-        if v in ["neo4j", "password", "changeme", "localmind2024"]:
+        
+        # Warn about weak passwords (logging not yet configured during Settings init)
+        # Use standard library logging which will be captured by structlog later
+        if v in ["neo4j", "password", "changeme", "localmind2024", "CHANGE_ME_IN_PRODUCTION"]:
+            logger = logging.getLogger("config")
+            logger.warning(
+                "Using a default/weak Neo4j password. Set a strong password in production!",
+                extra={"password_pattern": "weak"}
+            )
+            # Also print to stderr during startup for visibility
             print(
                 "⚠️  WARNING: Using a default/weak Neo4j password. "
                 "Set a strong password in production!",
