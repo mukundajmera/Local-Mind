@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from config import Settings, get_settings
 from typing import List, Optional
 import os
+import sys
 from services.graph_analytics import GraphAnalytics
 from services.search import HybridRetriever
 from services.llm_factory import LLMService
@@ -24,6 +25,13 @@ from exceptions import (
     SearchError,
     ValidationError,
 )
+try:
+    from .connection_pool import ConnectionPool
+    from .circuit_breaker import CircuitBreakerOpenError
+except ImportError:
+    # Fallback for direct script execution
+    from connection_pool import ConnectionPool
+    from circuit_breaker import CircuitBreakerOpenError
 import uuid
 import time
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -140,6 +148,26 @@ async def local_mind_exception_handler(request: Request, exc: LocalMindBaseExcep
     )
 
 
+@app.exception_handler(CircuitBreakerOpenError)
+async def circuit_breaker_handler(request: Request, exc: CircuitBreakerOpenError):
+    """Handle circuit breaker open errors with 503 Service Unavailable."""
+    logger.warning(
+        f"Circuit breaker open: {str(exc)}",
+        extra={"path": str(request.url.path)}
+    )
+    
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": {
+                "error_type": "ServiceUnavailable",
+                "message": "Service temporarily unavailable due to repeated failures",
+                "path": str(request.url.path),
+            }
+        }
+    )
+
+
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Catch-all handler for unexpected exceptions."""
@@ -177,35 +205,38 @@ async def health_check():
     services = {}
     overall_healthy = True
     
-    # Check Neo4j
-    try:
-        async with GraphAnalytics() as analytics:
-            # Simple query to verify connection
-            async with analytics._driver.session() as session:
-                await session.run("RETURN 1")
-        services["neo4j"] = "healthy"
-        app_metrics.neo4j_is_healthy.set(1)
-    except Exception as e:
-        logger.warning("Neo4j health check failed", error=str(e))
-        services["neo4j"] = "unhealthy"
-        app_metrics.neo4j_is_healthy.set(0)
-        app_metrics.neo4j_connection_errors_total.inc()
-        overall_healthy = False
-    
-    # Check Milvus
-    try:
-        from pymilvus import MilvusClient
-        client = MilvusClient(uri=settings.milvus_uri)
-        # List collections to verify connection
-        client.list_collections()
-        client.close()
-        services["milvus"] = "healthy"
-        app_metrics.milvus_is_healthy.set(1)
-    except Exception as e:
-        logger.warning("Milvus health check failed", error=str(e))
-        services["milvus"] = "unhealthy"
-        app_metrics.milvus_is_healthy.set(0)
-        app_metrics.milvus_connection_errors_total.inc()
+    # Check connection pool health if available
+    if connection_pool and connection_pool._initialized:
+        try:
+            pool_health = await connection_pool.health_check()
+            
+            # Neo4j
+            services["neo4j"] = pool_health.get("neo4j", "unknown")
+            if services["neo4j"] == "healthy":
+                app_metrics.neo4j_is_healthy.set(1)
+            else:
+                app_metrics.neo4j_is_healthy.set(0)
+                app_metrics.neo4j_connection_errors_total.inc()
+                overall_healthy = False
+            
+            # Milvus
+            services["milvus"] = pool_health.get("milvus", "unknown")
+            if services["milvus"] == "healthy":
+                app_metrics.milvus_is_healthy.set(1)
+            else:
+                app_metrics.milvus_is_healthy.set(0)
+                app_metrics.milvus_connection_errors_total.inc()
+                overall_healthy = False
+                
+        except Exception as e:
+            logger.warning("Connection pool health check failed", error=str(e))
+            services["neo4j"] = "unknown"
+            services["milvus"] = "unknown"
+            overall_healthy = False
+    else:
+        # Connection pool not initialized
+        services["neo4j"] = "not_initialized"
+        services["milvus"] = "not_initialized"
         overall_healthy = False
     
     # Check Redis (if configured)
@@ -255,15 +286,25 @@ async def metrics():
     )
 
 
-# Global instance for GraphAnalytics (as per instruction, though current endpoints use 'async with')
+# Global instances
 graph_analytics: Optional[GraphAnalytics] = None
+connection_pool: Optional[ConnectionPool] = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize resources on startup."""
-    settings = get_settings()
     
-    # Configure logging first
+    # 1. Validate configuration
+    try:
+        settings = get_settings()
+        logger.info("Configuration validated successfully")
+    except Exception as e:
+        logger.error("Configuration validation failed", error=str(e), exc_info=True)
+        print(f"❌ Configuration validation failed: {e}", file=sys.stderr)
+        print("Please check your .env file and ensure all required settings are present.", file=sys.stderr)
+        sys.exit(1)
+    
+    # 2. Configure logging
     configure_logging(environment=settings.environment)
     
     logger.info(
@@ -273,13 +314,39 @@ async def startup_event():
         neo4j_uri=settings.neo4j_uri,
     )
     
+    # 3. Initialize connection pool
     try:
-        # Initialize global analytics instance
+        global connection_pool
+        connection_pool = await ConnectionPool.get_instance(settings)
+        logger.info("Connection pool initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize connection pool", error=str(e), exc_info=True)
+        print(f"❌ Failed to connect to databases: {e}", file=sys.stderr)
+        print("Please ensure Neo4j and Milvus are running and accessible.", file=sys.stderr)
+        # Don't exit - allow startup to continue with degraded functionality
+        # Health checks will report the issue
+    
+    # 4. Initialize GraphAnalytics (for compatibility)
+    try:
         global graph_analytics
         graph_analytics = GraphAnalytics()
         logger.info("GraphAnalytics initialized successfully")
     except Exception as e:
         logger.error("Failed to initialize GraphAnalytics", error=str(e), exc_info=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on shutdown."""
+    logger.info("Shutting down backend")
+    
+    # Close connection pool
+    if connection_pool:
+        try:
+            await connection_pool.close()
+            logger.info("Connection pool closed")
+        except Exception as e:
+            logger.error("Error closing connection pool", error=str(e))
 
 
 # =============================================================================
