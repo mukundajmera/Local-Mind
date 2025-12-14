@@ -54,6 +54,21 @@ def test_upload_source_mock():
         # If it raises inside the app, TestClient might catch it
         pass
 
+def test_upload_markdown_file():
+    """Verify markdown file upload and parsing."""
+    try:
+        # Create a dummy markdown file
+        files = {
+            "file": ("test.md", b"# Test Markdown\n\nThis is a test document.", "text/markdown")
+        }
+        response = client.post("/api/v1/sources/upload", files=files)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["filename"] == "test.md"
+    except Exception as e:
+        pytest.fail(f"Markdown upload failed: {e}")
+
 def test_chat_endpoint_exists():
     """Verify chat endpoint is implemented (not 501)."""
     # Simple payload

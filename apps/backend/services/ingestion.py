@@ -18,6 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 # Third-party libraries
 from sentence_transformers import SentenceTransformer
 from langchain_ollama import ChatOllama
+from langchain_community.chat_models import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
@@ -87,22 +88,33 @@ class EmbeddingService:
 
 class LLMService:
     """
-    LLM service for entity/relationship extraction using Ollama.
+    LLM service for entity/relationship extraction using Ollama or OpenAI/LM Studio.
     """
     
-    def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434", provider: str = "ollama"):
         self.model = model
         self.base_url = base_url
+        self.provider = provider
         self._llm = None
         
     def _get_llm(self):
         if self._llm is None:
-            self._llm = ChatOllama(
-                model=self.model,
-                base_url=self.base_url,
-                temperature=0,
-                format="json" # Important for structured output resilience
-            )
+            if self.provider == "lmstudio" or self.provider == "openai":
+                logger.info(f"Initializing ChatOpenAI for provided: {self.provider} at {self.base_url}")
+                self._llm = ChatOpenAI(
+                    model=self.model,
+                    base_url=self.base_url,
+                    api_key="not-needed",
+                    temperature=0,
+                )
+            else:
+                logger.info(f"Initializing ChatOllama for provider: {self.provider} at {self.base_url}")
+                self._llm = ChatOllama(
+                    model=self.model,
+                    base_url=self.base_url,
+                    temperature=0,
+                    format="json" # Important for structured output resilience
+                )
         return self._llm
     
     async def extract_entities(self, chunk_text: str, chunk_id: str) -> ExtractionResult:
@@ -314,6 +326,25 @@ class DocumentParser:
             logger.error(f"Failed to parse PDF {file_path}: {e}")
             raise
 
+    @staticmethod
+    async def parse_text(file_path: Path) -> tuple[str, dict]:
+        """
+        Read text from a plain text or markdown file.
+        """
+        try:
+            import aiofiles
+            async with aiofiles.open(file_path, mode="r", encoding="utf-8") as f:
+                text = await f.read()
+            
+            metadata = {
+                "file_path": str(file_path),
+                "element_count": 1
+            }
+            return text, metadata
+        except Exception as e:
+            logger.error(f"Failed to parse text file {file_path}: {e}")
+            raise
+
 
 # =============================================================================
 # Main Ingestion Pipeline
@@ -343,6 +374,7 @@ class IngestionPipeline:
         self.llm_service = LLMService(
             model=self.settings.llm_model,
             base_url=self.settings.llm_base_url or "",
+            provider=self.settings.llm_provider,
         )
         
         # Database clients (initialized in __aenter__)
@@ -407,7 +439,12 @@ class IngestionPipeline:
             
         Returns:
             IngestedDocument with metadata
+            
+        Raises:
+            IngestionError: If ingestion fails at any stage
         """
+        from exceptions import IngestionError
+        
         logger.info(f"Starting ingestion: {file_path}")
         
         # 1. Create document metadata
@@ -417,15 +454,55 @@ class IngestionPipeline:
         )
         
         # 2. Parse document
-        text, parse_metadata = await DocumentParser.parse_pdf(file_path)
-        logger.info(f"Parsed {len(text)} characters from {file_path.name}")
+        try:
+            text = ""
+            if file_path.suffix.lower() == ".pdf":
+                text, parse_metadata = await DocumentParser.parse_pdf(file_path)
+            elif file_path.suffix.lower() in [".md", ".txt", ".json", ".yaml", ".yml"]:
+                text, parse_metadata = await DocumentParser.parse_text(file_path)
+            else:
+                raise IngestionError(
+                    message=f"Unsupported file type: {file_path.suffix}",
+                    filename=file_path.name,
+                    stage="parsing"
+                )
+                
+            logger.info(f"Parsed {len(text)} characters from {file_path.name}")
+        except IngestionError:
+            raise
+        except Exception as e:
+            raise IngestionError(
+                message=f"Failed to parse document: {str(e)}",
+                doc_id=str(doc.doc_id),
+                filename=file_path.name,
+                stage="parsing",
+                original_error=e
+            )
         
         # 3. Chunk text
-        chunks = self.chunker.chunk_text(text, doc.doc_id)
-        logger.info(f"Created {len(chunks)} chunks")
+        try:
+            chunks = self.chunker.chunk_text(text, doc.doc_id)
+            logger.info(f"Created {len(chunks)} chunks")
+        except Exception as e:
+            raise IngestionError(
+                message=f"Failed to chunk document: {str(e)}",
+                doc_id=str(doc.doc_id),
+                filename=file_path.name,
+                stage="chunking",
+                original_error=e
+            )
         
         # 4. Embed chunks
-        chunks_with_embeddings = await self._embed_chunks(chunks)
+        try:
+            chunks_with_embeddings = await self._embed_chunks(chunks)
+        except Exception as e:
+            raise IngestionError(
+                message=f"Failed to embed chunks: {str(e)}",
+                doc_id=str(doc.doc_id),
+                filename=file_path.name,
+                stage="embedding",
+                original_error=e
+            )
         
         # 5. Extract entities and relationships from each chunk
         # IMPORTANT: Continue on individual chunk failures to avoid losing entire document
@@ -454,10 +531,28 @@ class IngestionPipeline:
         logger.info(f"Extracted {len(all_entities)} entities, {len(all_relationships)} relationships")
         
         # 6. Persist to vector store
-        await self._persist_to_milvus(chunks_with_embeddings)
+        try:
+            await self._persist_to_milvus(chunks_with_embeddings)
+        except Exception as e:
+            raise IngestionError(
+                message=f"Failed to persist to Milvus: {str(e)}",
+                doc_id=str(doc.doc_id),
+                filename=file_path.name,
+                stage="milvus_persistence",
+                original_error=e
+            )
         
         # 7. Persist to graph store
-        await self._persist_to_neo4j(doc, chunks_with_embeddings, all_entities, all_relationships)
+        try:
+            await self._persist_to_neo4j(doc, chunks_with_embeddings, all_entities, all_relationships)
+        except Exception as e:
+            raise IngestionError(
+                message=f"Failed to persist to Neo4j: {str(e)}",
+                doc_id=str(doc.doc_id),
+                filename=file_path.name,
+                stage="neo4j_persistence",
+                original_error=e
+            )
         
         logger.info(f"Ingestion complete: {doc.doc_id}")
         return doc

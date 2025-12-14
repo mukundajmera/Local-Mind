@@ -49,7 +49,7 @@ class TextChunk(BaseModel):
             "id": str(self.chunk_id),
             "doc_id": str(self.doc_id),
             "text": self.text,
-            "embedding": self.embedding or [],
+            "vector": self.embedding or [],
             "position": self.position,
         }
 
