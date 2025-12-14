@@ -4,7 +4,7 @@ Sovereign Cognitive Engine - Orchestrator Service
 Central API gateway coordinating all cognitive services.
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -15,8 +15,11 @@ import sys
 from services.graph_analytics import GraphAnalytics
 from services.search import HybridRetriever
 from services.llm_factory import LLMService
+from services.briefing_service import BriefingService
+from services.notes_service import NotesService
 from logging_config import configure_logging, get_logger
 import structlog
+import schemas
 from exceptions import (
     LocalMindBaseException,
     DatabaseConnectionError,
@@ -389,9 +392,46 @@ async def delete_source(doc_id: str):
         raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
 
 
+async def _generate_briefing_background(doc_id: str, file_path):
+    """
+    Background task to generate document briefing.
+    
+    This runs asynchronously after upload completes to avoid blocking the response.
+    """
+    try:
+        logger.info(f"Starting background briefing generation for {doc_id}")
+        
+        # Read the document text
+        from services.ingestion import DocumentParser
+        from pathlib import Path
+        
+        file_path_obj = Path(file_path)
+        if file_path_obj.suffix.lower() == ".pdf":
+            text, _ = await DocumentParser.parse_pdf(file_path_obj)
+        elif file_path_obj.suffix.lower() in [".md", ".txt", ".json", ".yaml", ".yml"]:
+            text, _ = await DocumentParser.parse_text(file_path_obj)
+        else:
+            logger.warning(f"Unsupported file type for briefing: {file_path_obj.suffix}")
+            return
+        
+        # Generate briefing
+        async with BriefingService() as briefing_service:
+            await briefing_service.generate_briefing(doc_id, text)
+        
+        logger.info(f"Briefing generation completed for {doc_id}")
+        
+    except Exception as e:
+        logger.error(f"Background briefing generation failed for {doc_id}: {e}", exc_info=True)
+        # Don't raise - this is a background task
+
+
 @app.post("/api/v1/sources/upload")
-async def upload_source(file: UploadFile = File(...)):
-    """Upload and ingest a document source."""
+async def upload_source(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
+    """
+    Upload and ingest a document source.
+    
+    After successful ingestion, triggers automatic briefing generation in the background.
+    """
     # Get settings for upload directory
     settings = get_settings()
     upload_path = Path(settings.upload_dir)
@@ -426,12 +466,16 @@ async def upload_source(file: UploadFile = File(...)):
         duration = time.time() - start_time
         app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
         
+        # Schedule briefing generation in background
+        background_tasks.add_task(_generate_briefing_background, str(doc.doc_id), str(file_path))
+        
         return {
             "status": "success",
             "doc_id": str(doc.doc_id),
             "filename": doc.filename,
             "chunks_created": 0, # TODO: Get from result - nice to have
-            "entities_extracted": 0 
+            "entities_extracted": 0,
+            "briefing_status": "generating"
         }
     except IngestionError as e:
         # Track failure stage
@@ -471,15 +515,14 @@ async def get_graph():
 
 
 
-class ChatRequest(BaseModel):
-    message: str
-    context_node_ids: List[str] = []
-    strategies: List[str] = []
-
-
 @app.post("/api/v1/chat")
-async def chat(request: ChatRequest):
-    """Conversational interface with the knowledge base."""
+async def chat(request: "schemas.ChatRequest"):
+    """
+    Conversational interface with the knowledge base.
+    
+    Supports source-filtered retrieval: if source_ids is provided,
+    only searches within those documents (the "Notebook" experience).
+    """
     try:
         context_text = ""
         sources = []
@@ -488,9 +531,12 @@ async def chat(request: ChatRequest):
         if "insight" in request.strategies or "sources" in request.strategies:
             try:
                 async with HybridRetriever() as retriever:
-                    # If we have focused nodes, we can use them to guide search (future)
-                    # For now, just search with the query
-                    results = await retriever.search(request.message, k=5)
+                    # Search with optional source filtering
+                    results = await retriever.search(
+                        request.message, 
+                        k=5,
+                        source_ids=request.source_ids
+                    )
                     
                     if results.results:
                         context_text = "\n\n".join([
@@ -499,7 +545,7 @@ async def chat(request: ChatRequest):
                         ])
                         # Collect sources for citation
                         sources = [
-                            {"id": r.chunk_id, "score": r.score, "source": r.source}
+                            {"id": r.chunk_id, "score": r.score, "source": r.source, "doc_id": r.doc_id}
                             for r in results.results
                         ]
             except Exception as e:
@@ -523,7 +569,8 @@ async def chat(request: ChatRequest):
         return {
             "response": response,
             "sources": sources,
-            "context_used": bool(context_text)
+            "context_used": bool(context_text),
+            "filtered_sources": request.source_ids is not None
         }
             
     except LLMServiceError:
@@ -534,4 +581,131 @@ async def chat(request: ChatRequest):
         raise HTTPException(
             status_code=500, 
             detail=f"Chat failed: {str(e)}"
+        )
+
+
+# =============================================================================
+# Notes API Endpoints
+# =============================================================================
+
+@app.post("/api/v1/notes", response_model=schemas.SavedNote)
+async def create_note(request: schemas.CreateNoteRequest):
+    """
+    Create a new note.
+    
+    Notes can optionally reference a source chunk for citation.
+    """
+    try:
+        async with NotesService() as notes_service:
+            note = await notes_service.create_note(request)
+        
+        logger.info(f"Note created: {note.note_id}")
+        return note
+        
+    except Exception as e:
+        logger.error(f"Failed to create note: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create note: {str(e)}"
+        )
+
+
+@app.get("/api/v1/notes", response_model=List[schemas.SavedNote])
+async def get_notes():
+    """
+    Retrieve all notes, ordered by creation date (newest first).
+    
+    Returns an empty list if no notes exist or on database errors.
+    """
+    try:
+        async with NotesService() as notes_service:
+            notes = await notes_service.get_all_notes()
+        
+        logger.debug(f"Retrieved {len(notes)} notes")
+        return notes
+        
+    except Exception as e:
+        logger.error(f"Failed to retrieve notes: {e}", exc_info=True)
+        # Return empty list for graceful degradation
+        return []
+
+
+@app.get("/api/v1/notes/{note_id}", response_model=schemas.SavedNote)
+async def get_note(note_id: str):
+    """
+    Retrieve a specific note by ID.
+    """
+    try:
+        async with NotesService() as notes_service:
+            note = await notes_service.get_note_by_id(note_id)
+        
+        if not note:
+            raise HTTPException(status_code=404, detail=f"Note {note_id} not found")
+        
+        return note
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve note {note_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve note: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/notes/{note_id}")
+async def delete_note(note_id: str):
+    """
+    Delete a note by ID.
+    """
+    try:
+        async with NotesService() as notes_service:
+            deleted = await notes_service.delete_note(note_id)
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Note {note_id} not found")
+        
+        return {"status": "success", "note_id": note_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete note {note_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete note: {str(e)}"
+        )
+
+
+# =============================================================================
+# Briefing API Endpoint
+# =============================================================================
+
+@app.get("/api/v1/sources/{doc_id}/briefing", response_model=schemas.BriefingResponse)
+async def get_document_briefing(doc_id: str):
+    """
+    Retrieve the automated briefing for a document.
+    
+    Returns 404 if document doesn't exist or briefing hasn't been generated yet.
+    """
+    try:
+        async with BriefingService() as briefing_service:
+            briefing = await briefing_service.get_briefing(doc_id)
+        
+        if not briefing:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Briefing not found for document {doc_id}. It may still be generating."
+            )
+        
+        return briefing
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve briefing for {doc_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve briefing: {str(e)}"
         )
