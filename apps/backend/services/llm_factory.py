@@ -342,6 +342,7 @@ Extract entities and relationships following the schema exactly."""
         user_message: str,
         context: Optional[str] = None,
         history: Optional[list[dict]] = None,
+        max_tokens: int = 1024,
     ) -> str:
         """
         Simple chat completion for conversational use.
@@ -350,11 +351,18 @@ Extract entities and relationships following the schema exactly."""
             user_message: User's question or message
             context: Optional context from RAG retrieval
             history: Optional conversation history
+            max_tokens: Maximum tokens to generate (auto-reduced for simple queries)
             
         Returns:
             Assistant's response text
         """
         system_prompt = "You are a helpful AI assistant with access to a knowledge base."
+        
+        # Adaptive token limit: use fewer tokens for queries without context
+        # This reduces response time for simple questions
+        effective_max_tokens = max_tokens
+        if not context:
+            effective_max_tokens = min(max_tokens, 512)
         
         if context:
             system_prompt += f"\n\nUse the following context to answer:\n{context}"
@@ -371,7 +379,7 @@ Extract entities and relationships following the schema exactly."""
         response, _ = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            max_tokens=1024,
+            max_tokens=effective_max_tokens,
             temperature=0.7,
         )
         

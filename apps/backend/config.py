@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     debug: bool = Field(default=False)
     
+    # ==========================================================================
+    # Storage Configuration
+    # ==========================================================================
+    upload_dir: str = Field(
+        default="/tmp/localmind_uploads",
+        description="Directory for storing uploaded files. Set via UPLOAD_DIR env var."
+    )
+    
     @property
     def milvus_uri(self) -> str:
         """Construct Milvus URI from host and port."""

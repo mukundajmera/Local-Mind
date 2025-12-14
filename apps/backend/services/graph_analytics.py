@@ -392,3 +392,60 @@ class GraphAnalytics:
                 })
             
             return documents
+
+    async def delete_document(self, doc_id: str) -> dict:
+        """
+        Delete a document and all associated chunks.
+        
+        This removes:
+        - The Document node
+        - All Chunk nodes connected via HAS_CHUNK
+        - All relationships from those chunks
+        
+        Note: Entities are NOT deleted as they may be referenced by other chunks.
+        
+        Args:
+            doc_id: Document ID to delete
+            
+        Returns:
+            Dict with deletion statistics (chunks_deleted count)
+        """
+        if not self._neo4j_driver:
+            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
+        
+        async with self._neo4j_driver.session() as session:
+            # First, count what we're about to delete
+            count_result = await session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                RETURN count(c) AS chunk_count
+                """,
+                doc_id=doc_id,
+            )
+            count_record = await count_result.single()
+            
+            if not count_record:
+                logger.warning(f"Document {doc_id} not found for deletion")
+                return {"doc_id": doc_id, "chunks_deleted": 0, "found": False}
+            
+            chunk_count = count_record["chunk_count"]
+            
+            # Delete chunks and document
+            await session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                DETACH DELETE c
+                DETACH DELETE d
+                """,
+                doc_id=doc_id,
+            )
+            
+            logger.info(f"Deleted document {doc_id} with {chunk_count} chunks")
+            
+            return {
+                "doc_id": doc_id, 
+                "chunks_deleted": chunk_count,
+                "found": True
+            }

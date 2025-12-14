@@ -366,28 +366,62 @@ async def list_sources():
         return {"sources": []}
 
 
+@app.delete("/api/v1/sources/{doc_id}")
+async def delete_source(doc_id: str):
+    """
+    Delete a document source and its associated data.
+    
+    Removes the document and all chunks from the knowledge graph.
+    Entities are preserved as they may be referenced by other documents.
+    """
+    try:
+        async with GraphAnalytics() as analytics:
+            result = await analytics.delete_document(doc_id)
+        
+        if not result.get("found", True):
+            raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+        
+        return {"status": "success", **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete source {doc_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
+
+
 @app.post("/api/v1/sources/upload")
 async def upload_source(file: UploadFile = File(...)):
     """Upload and ingest a document source."""
-    # Save file to temp
+    # Get settings for upload directory
+    settings = get_settings()
+    upload_path = Path(settings.upload_dir)
+    upload_path.mkdir(parents=True, exist_ok=True)
+    
+    # Save file to configured upload directory with unique filename
     import shutil
-    import tempfile
     from pathlib import Path
     from services.ingestion import IngestionPipeline
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = Path(tmp.name)
+    unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    file_path = upload_path / unique_filename
+    
+    try:
+        # Write uploaded file to storage
+        with open(file_path, "wb") as dest:
+            shutil.copyfileobj(file.file, dest)
+    except Exception as e:
+        logger.error(f"Failed to save uploaded file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     
     # Track file type for metrics
-    file_type = tmp_path.suffix.lower().lstrip(".") or "unknown"
+    file_type = file_path.suffix.lower().lstrip(".") or "unknown"
     app_metrics.ingestion_attempts_total.labels(file_type=file_type).inc()
     
     start_time = time.time()
     
     try:
         async with IngestionPipeline() as pipeline:
-            doc = await pipeline.ingest_document(tmp_path)
+            doc = await pipeline.ingest_document(file_path)
         
         duration = time.time() - start_time
         app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
@@ -419,9 +453,8 @@ async def upload_source(file: UploadFile = File(...)):
             stage="upload",
             original_error=e
         )
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+    # Note: We keep the file in upload_dir for reference/debugging
+    # Add cleanup logic if storage becomes a concern
 
 
 @app.get("/api/v1/graph")
