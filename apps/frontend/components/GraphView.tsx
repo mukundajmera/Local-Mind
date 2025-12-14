@@ -48,6 +48,7 @@ interface GraphViewProps {
 export function GraphView({ width, height }: GraphViewProps) {
     const graphRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [lastInteractedNode, setLastInteractedNode] = useState<string | null>(null);
 
     const graphData = useGraphData();
     const { setFocusContext, setHoveredNode, focusedNodeId } = useGraphStore();
@@ -60,6 +61,7 @@ export function GraphView({ width, height }: GraphViewProps) {
     // and smoothly flies the camera to the cited node.
 
     const flyToNode = useCallback((nodeId: string) => {
+        setLastInteractedNode(nodeId);
         if (!graphRef.current) return;
 
         // Find the node in graph data
@@ -129,6 +131,7 @@ export function GraphView({ width, height }: GraphViewProps) {
 
     const handleNodeClick = useCallback((node: any) => {
         setFocusContext(node.id);
+        setLastInteractedNode(node.id);
 
         // Zoom to node
         if (graphRef.current) {
@@ -150,6 +153,9 @@ export function GraphView({ width, height }: GraphViewProps) {
     // Handle node hover
     const handleNodeHover = useCallback((node: any | null) => {
         setHoveredNode(node?.id ?? null);
+        if (node) {
+            setLastInteractedNode(node.id);
+        }
 
         // Change cursor
         if (containerRef.current) {

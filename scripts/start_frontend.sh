@@ -25,7 +25,11 @@ if [ -f "$SCRIPT_DIR/../.env" ]; then
     set +a
 fi
 
+export WATCHPACK_POLLING="${WATCHPACK_POLLING:-true}"
+export WATCHPACK_POLLING_INTERVAL="${WATCHPACK_POLLING_INTERVAL:-1000}"
+
 echo "🚀 Starting Local Mind Frontend on http://localhost:3000"
+echo "📡 WATCHPACK_POLLING=$WATCHPACK_POLLING (interval ${WATCHPACK_POLLING_INTERVAL}ms)"
 echo ""
 
 exec npm run dev

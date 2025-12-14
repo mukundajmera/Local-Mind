@@ -1,6 +1,6 @@
 # Local Mind - macOS Deep Clean & Startup Debug Log
 
-**Date:** 2025-12-14  
+**Date:** 2025-12-14 (Session 2)  
 **Platform:** macOS (arm64 Apple Silicon)  
 **Engineer:** Senior MacOS Full-Stack SRE Protocol
 
@@ -8,88 +8,145 @@
 
 ## Phase 1 · Environment Scan
 
-- **CPU Architecture:** `arm64` (via `uname -m`).
-- **Node.js/npm:** Homebrew Node 25.2.1 and npm 11.6.2 confirmed at `/opt/homebrew/bin`. Ensure `eval "$(${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew shellenv)"` runs in shells so binaries resolve globally.
-- **Python:** 3.12.10 (system) with project venv at `apps/backend/venv`.
-- **Critical Ports:** `:3000` (frontend) and `:8000` (backend) free prior to launch. `:5000` is occupied by `ControlCenter` (macOS AirPlay).
+| Check | Result |
+|-------|--------|
+| **CPU Architecture** | `arm64` (Apple Silicon M-series) |
+| **Node.js** | v25.2.1 (`/opt/homebrew/bin/node`) |
+| **npm** | 11.6.2 |
+| **Python** | 3.12.10 (system), venv at `apps/backend/venv` |
+| **Shell** | zsh (macOS default) |
+
+### Port Conflicts
+| Port | Status | Process |
+|------|--------|---------|
+| `:3000` | **Cleared** | Killed stale node process (PID 28295) |
+| `:5000` | **Occupied** | macOS ControlCenter (AirPlay) - expected |
+| `:8000` | **Free** | Ready for backend |
 
 ---
 
-## Backend Deep Investigation (FastAPI / Uvicorn)
+## Phase 2 · Frontend "Nuke & Pave"
 
-1. Launch command:
-   ```bash
-   cd apps/backend
-   source venv/bin/activate
-   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-2. Runtime log (`logs/backend-dev.log`):
-   ```
-   INFO:     Uvicorn running on http://0.0.0.0:8000
-   INFO:     Application startup complete.
-   ```
-3. Health probes:
-   ```bash
-   curl -s http://127.0.0.1:8000/health
-   # → {"status":"healthy","version":"0.1.0","services":{"neo4j":"pending","milvus":"pending","redis":"pending"}}
-   ```
-4. Root cause noted: previous failures stemmed from missing Node/npm and from not actually starting the backend. No code errors surfaced; service responds 200.
-5. After verification, backend processes were stopped (`kill <PID>`), leaving the port free for the next run.
+### Cleanup Actions
+```bash
+cd apps/frontend
+rm -rf node_modules package-lock.json .next
+npm cache clean --force
+```
+
+### Fresh Install
+```bash
+npm install --platform=darwin --arch=arm64
+```
+
+**Result:**
+- ✅ 196 packages installed
+- ✅ 0 vulnerabilities found
+- ⚠️ npm warns `--platform` and `--arch` flags deprecated in future versions
 
 ---
 
-## Frontend Deep Investigation (Next.js 15)
+## Phase 3 · Backend Verification
 
-1. Launch command with macOS watcher mitigation:
-   ```bash
-   cd apps/frontend
-   WATCHPACK_POLLING=true npm run dev
-   ```
-2. Runtime log (`logs/frontend-dev.log`):
-   ```
-   ▲ Next.js 15.5.9
-   ✓ Starting...
-   ✓ Ready in ~1.3s
-   ```
-3. Smoke test:
-   ```bash
-   curl -I http://127.0.0.1:3000
-   # → HTTP/1.1 200 OK
-   ```
-4. Identified issue: running without `WATCHPACK_POLLING=true` on Sonoma triggers `EMFILE` watcher errors. With polling enabled, service stays healthy. Processes were terminated after validation.
+### Python Environment Check
+```bash
+cd apps/backend
+source venv/bin/activate
+pip freeze | wc -l  # → 169 packages
+```
+
+**Key packages confirmed:** FastAPI, Uvicorn, Celery, aiohttp, sentence-transformers
 
 ---
 
-## Key Findings
+## Phase 4 · Startup Sequence
 
-- **Backend:** Starts cleanly; health endpoint reachable. No Python stack traces present. Ensure the app is actually launched (outside Docker) using the venv command above.
-- **Frontend:** Requires polling-based watcher to run reliably on macOS. Without the flag, Next.js emits `EMFILE` and appears hung.
-- **Port 5000 Conflict:** macOS ControlCenter listens on :5000. Change service configs or disable AirPlay if a component requires this port.
+### Backend Start
+```bash
+cd apps/backend
+source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+**Log Output:**
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete.
+```
+
+### Frontend Start (with macOS watcher fix)
+```bash
+cd apps/frontend
+WATCHPACK_POLLING=true npm run dev
+```
+**Log Output:**
+```
+▲ Next.js 15.5.9
+✓ Ready in 2.1s
+```
+
+### Health Verification
+| Endpoint | Response | Status |
+|----------|----------|--------|
+| `http://127.0.0.1:8000/health` | `{"status":"healthy","version":"0.1.0",...}` | ✅ 200 OK |
+| `http://127.0.0.1:3000` | HTML page | ✅ 200 OK |
+
+---
+
+## Key Fixes Applied This Session
+
+1. **Killed stale node process** on port 3000 (PID 28295)
+2. **Complete frontend rebuild:**
+   - Deleted `node_modules/`, `package-lock.json`, `.next/`
+   - Cleared npm cache
+   - Fresh install with ARM64 platform flags
+3. **Verified backend venv** with 169 packages intact
+4. **Started both services** with macOS-specific workarounds
 
 ---
 
 ## How to Run Both Services
 
-1. **Backend:**
-   ```bash
-   cd apps/backend
-   source venv/bin/activate
-   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-2. **Frontend (new terminal):**
-   ```bash
-   cd apps/frontend
-   WATCHPACK_POLLING=true npm run dev
-   ```
-3. Visit http://localhost:3000 and http://localhost:8000/docs.
+### Terminal 1 - Backend
+```bash
+cd apps/backend
+source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Terminal 2 - Frontend
+```bash
+cd apps/frontend
+WATCHPACK_POLLING=true npm run dev
+```
+
+### Access Points
+- **Frontend:** http://localhost:3000
+- **Backend API:** http://localhost:8000/docs
+- **Health Check:** http://localhost:8000/health
 
 ---
 
-## Troubleshooting Checklist
+## Troubleshooting Reference
 
-- If `node`/`npm` are missing, run `brew install node` and re-open terminal or source Homebrew shellenv.
-- If frontend throws `EMFILE`, ensure `WATCHPACK_POLLING=true` (or set `CHOKIDAR_USEPOLLING=1`).
-- If backend reports 404/connection issues, confirm it is started in the venv and that `curl http://127.0.0.1:8000/health` returns 200.
-- For Docker-based infra, use `podman compose -f infrastructure/nerdctl/compose.yaml up -d` only when databases are required; backend/frontend still run locally.
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| `EMFILE` watcher errors | macOS Sonoma file watcher limits | Set `WATCHPACK_POLLING=true` |
+| Port 3000 in use | Stale node process | `lsof -i :3000` then `kill -9 <PID>` |
+| Port 5000 occupied | macOS AirPlay Receiver | System Settings → AirDrop → disable AirPlay Receiver |
+| `node`/`npm` not found | Homebrew PATH not sourced | Run `eval "$(brew shellenv)"` |
+| Python module not found | venv not activated | `source apps/backend/venv/bin/activate` |
+| gyp/native module errors | Missing Xcode tools | `xcode-select --install` |
 
-✅ Backend and frontend both validated as operational with the commands above.
+---
+
+## Current Status
+
+✅ **BOTH SERVICES OPERATIONAL**
+
+- Backend: Running on port 8000 (PID active)
+- Frontend: Running on port 3000 (PID active)
+- Health endpoints: Verified responding
+
+---
+
+*Log updated: 2025-12-14 19:27 IST*

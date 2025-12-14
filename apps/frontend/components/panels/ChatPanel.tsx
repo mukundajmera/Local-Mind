@@ -11,21 +11,38 @@ interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
-    timestamp: Date;
+    timestamp: Date | null;
 }
 
-// Sample messages for development
-const SAMPLE_MESSAGES: Message[] = [
+/**
+ * Client-only timestamp component to prevent React hydration mismatch.
+ * Renders a placeholder during SSR and formats on the client after mount.
+ */
+function FormattedTime({ date }: { date: Date }) {
+    const [formatted, setFormatted] = useState("--:--");
+
+    useEffect(() => {
+        const formatter = new Intl.DateTimeFormat(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+        setFormatted(formatter.format(date));
+    }, [date]);
+
+    return <>{formatted}</>;
+}
+
+const INITIAL_MESSAGES: Message[] = [
     {
-        id: "1",
+        id: "welcome",
         role: "assistant",
         content: "Welcome to the Sovereign Cognitive Engine. Upload documents to build your knowledge graph, then ask questions or generate podcast episodes.",
-        timestamp: new Date(),
+        timestamp: null,
     },
 ];
 
 export function ChatPanel() {
-    const [messages, setMessages] = useState<Message[]>(SAMPLE_MESSAGES);
+    const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -73,10 +90,38 @@ export function ChatPanel() {
         }
     };
 
+    const appendAssistantMessage = (content: string) => {
+        setMessages((prev) => [
+            ...prev,
+            {
+                id: `${Date.now()}-assistant`,
+                role: "assistant",
+                content,
+                timestamp: new Date(),
+            },
+        ]);
+    };
+
+    const handleQuickAction = (action: "podcast" | "summarize" | "deep-dive") => {
+        switch (action) {
+            case "podcast":
+                appendAssistantMessage("Generating podcast preview for the current knowledge selection...");
+                break;
+            case "summarize":
+                appendAssistantMessage("Summarizing current knowledge graph context...");
+                break;
+            case "deep-dive":
+                appendAssistantMessage("Initiating deep dive reasoning session with highlighted nodes...");
+                break;
+            default:
+                break;
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full" data-testid="chat-panel">
             {/* Header */}
-            <div className="panel-header flex items-center justify-between">
+            <div className="panel-header flex items-center justify-between" data-testid="chat-header">
                 <span>Cognitive Stream</span>
                 {focusedNode && (
                     <span className="text-xs text-cyber-blue">
@@ -89,28 +134,35 @@ export function ChatPanel() {
             <div
                 ref={scrollRef}
                 className="flex-1 overflow-y-auto p-4 space-y-4"
+                data-testid="chat-messages"
             >
                 {messages.map((message) => (
                     <div
                         key={message.id}
                         className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                        data-testid={`message-${message.id}`}
+                        data-role={message.role}
                     >
                         <div
                             className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === "user"
-                                    ? "bg-cyber-blue/20 text-white"
-                                    : "bg-glass-200 text-white/90"
+                                ? "bg-cyber-blue/20 text-white"
+                                : "bg-glass-200 text-white/90"
                                 }`}
                         >
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                             <p className="text-xs text-white/40 mt-1">
-                                {message.timestamp.toLocaleTimeString()}
+                                {message.timestamp ? (
+                                    <FormattedTime date={message.timestamp} />
+                                ) : (
+                                    <span className="opacity-50" data-testid="chat-timestamp-placeholder">--:--</span>
+                                )}
                             </p>
                         </div>
                     </div>
                 ))}
 
                 {isLoading && (
-                    <div className="flex justify-start">
+                    <div className="flex justify-start" data-testid="loading-indicator">
                         <div className="bg-glass-200 rounded-2xl px-4 py-3">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 bg-cyber-blue rounded-full animate-pulse" />
@@ -132,11 +184,13 @@ export function ChatPanel() {
                         placeholder="Ask about your documents..."
                         className="glass-input resize-none"
                         rows={1}
+                        data-testid="chat-input"
                     />
                     <button
                         onClick={handleSend}
                         disabled={!input.trim() || isLoading}
                         className="glass-button px-6 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-glow"
+                        data-testid="send-button"
                     >
                         <svg
                             className="w-5 h-5 text-cyber-blue"
@@ -155,14 +209,26 @@ export function ChatPanel() {
                 </div>
 
                 {/* Quick actions */}
-                <div className="flex gap-2 mt-3">
-                    <button className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors">
+                <div className="flex gap-2 mt-3" data-testid="chat-quick-actions">
+                    <button
+                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors"
+                        data-testid="quick-action-podcast"
+                        onClick={() => handleQuickAction("podcast")}
+                    >
                         🎙️ Generate Podcast
                     </button>
-                    <button className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors">
+                    <button
+                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors"
+                        data-testid="quick-action-summarize"
+                        onClick={() => handleQuickAction("summarize")}
+                    >
                         📝 Summarize All
                     </button>
-                    <button className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors">
+                    <button
+                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors"
+                        data-testid="quick-action-deepdive"
+                        onClick={() => handleQuickAction("deep-dive")}
+                    >
                         🔍 Deep Dive
                     </button>
                 </div>

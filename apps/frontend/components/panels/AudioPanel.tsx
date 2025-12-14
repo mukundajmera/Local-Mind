@@ -85,7 +85,7 @@ export function AudioPanel() {
     };
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full" data-testid="audio-panel">
             {/* Hidden audio element */}
             <audio
                 ref={audioRef}
@@ -96,10 +96,10 @@ export function AudioPanel() {
             />
 
             {/* Header */}
-            <div className="panel-header">Acoustic Control</div>
+            <div className="panel-header" data-testid="audio-header">Acoustic Control</div>
 
             {/* Now Playing */}
-            <div className="p-4 border-b border-glass">
+            <div className="p-4 border-b border-glass" data-testid="now-playing">
                 <div className="text-xs text-white/50 mb-1">Now Playing</div>
                 {currentTrack ? (
                     <>
@@ -117,7 +117,7 @@ export function AudioPanel() {
                 )}
 
                 {/* Waveform placeholder */}
-                <div className="waveform-container mt-3">
+                <div className="waveform-container mt-3" data-testid="waveform-progress">
                     <div
                         className="h-full bg-gradient-to-r from-cyber-blue/30 to-cyber-purple/30"
                         style={{ width: `${progress}%` }}
@@ -138,19 +138,20 @@ export function AudioPanel() {
             [&::-webkit-slider-thumb]:bg-cyber-blue
             [&::-webkit-slider-thumb]:rounded-full
             [&::-webkit-slider-thumb]:cursor-pointer"
+                    data-testid="seek-slider"
                 />
 
                 {/* Time display */}
-                <div className="flex justify-between text-xs text-white/50 mt-1">
+                <div className="flex justify-between text-xs text-white/50 mt-1" data-testid="time-display">
                     <span>{formatTime((progress / 100) * duration)}</span>
                     <span>{formatTime(duration)}</span>
                 </div>
             </div>
 
             {/* Controls */}
-            <div className="p-4 flex items-center justify-center gap-4">
+            <div className="p-4 flex items-center justify-center gap-4" data-testid="transport-controls">
                 {/* Skip back */}
-                <button className="p-2 text-white/60 hover:text-white transition-colors">
+                <button className="p-2 text-white/60 hover:text-white transition-colors" data-testid="skip-back">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
                     </svg>
@@ -160,6 +161,7 @@ export function AudioPanel() {
                 <button
                     onClick={toggle}
                     className="p-4 rounded-full bg-cyber-blue/20 text-cyber-blue hover:bg-cyber-blue/30 transition-colors"
+                    data-testid="play-toggle"
                 >
                     {isPlaying ? (
                         <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
@@ -173,7 +175,7 @@ export function AudioPanel() {
                 </button>
 
                 {/* Skip forward */}
-                <button className="p-2 text-white/60 hover:text-white transition-colors">
+                <button className="p-2 text-white/60 hover:text-white transition-colors" data-testid="skip-forward">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
                     </svg>
@@ -181,7 +183,7 @@ export function AudioPanel() {
             </div>
 
             {/* Volume */}
-            <div className="px-4 pb-4 flex items-center gap-3">
+            <div className="px-4 pb-4 flex items-center gap-3" data-testid="volume-control">
                 <svg className="w-4 h-4 text-white/50" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
                 </svg>
@@ -198,6 +200,7 @@ export function AudioPanel() {
             [&::-webkit-slider-thumb]:bg-white
             [&::-webkit-slider-thumb]:rounded-full
             [&::-webkit-slider-thumb]:cursor-pointer"
+                    data-testid="volume-slider"
                 />
                 <span className="text-xs text-white/50 w-8">
                     {Math.round(volume * 100)}%
