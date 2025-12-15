@@ -275,10 +275,24 @@ class TextChunker:
         
         return chunks
 
+    async def chunk_text_async(self, text: str, doc_id: UUID) -> list[TextChunk]:
+        """
+        Async wrapper for chunk_text that offloads CPU-bound work to thread pool.
+        
+        This prevents blocking the FastAPI event loop during text chunking.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.chunk_text(text, doc_id)
+        )
+
 
 # =============================================================================
 # Document Parser
 # =============================================================================
+
 
 class DocumentParser:
     """Parse documents (PDF, etc.) into raw text."""
@@ -479,9 +493,9 @@ class IngestionPipeline:
                 original_error=e
             )
         
-        # 3. Chunk text
+        # 3. Chunk text (using async version to avoid blocking event loop)
         try:
-            chunks = self.chunker.chunk_text(text, doc.doc_id)
+            chunks = await self.chunker.chunk_text_async(text, doc.doc_id)
             logger.info(f"Created {len(chunks)} chunks")
         except Exception as e:
             raise IngestionError(

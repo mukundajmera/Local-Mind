@@ -626,7 +626,8 @@ async def chat(request: schemas.ChatRequest):
             "response": response,
             "sources": sources,
             "context_used": bool(context_text),
-            "filtered_sources": request.source_ids is not None
+            "filtered_sources": request.source_ids is not None,
+            "searched_source_ids": request.source_ids,
         }
             
     except LLMServiceError:
