@@ -182,14 +182,14 @@ test.describe('Chat Panel - Quick Actions', () => {
         await chatPage.expectQuickActionsVisible();
     });
 
-    test('quick action: Generate Podcast button should be clickable', async ({ chatPage }) => {
-        await expect(chatPage.generatePodcastButton).toBeEnabled();
-        await expect(chatPage.generatePodcastButton).toContainText('Generate Podcast');
+    test('quick action: Summarize button should be clickable', async ({ chatPage }) => {
+        await expect(chatPage.summarizeButton).toBeEnabled();
+        await expect(chatPage.summarizeButton).toContainText('Summarize');
     });
 
-    test('quick action: Summarize All button should be clickable', async ({ chatPage }) => {
-        await expect(chatPage.summarizeAllButton).toBeEnabled();
-        await expect(chatPage.summarizeAllButton).toContainText('Summarize All');
+    test('quick action: Key Questions button should be clickable', async ({ chatPage }) => {
+        await expect(chatPage.keyQuestionsButton).toBeEnabled();
+        await expect(chatPage.keyQuestionsButton).toContainText('Key Questions');
     });
 
     test('quick action: Deep Dive button should be clickable', async ({ chatPage }) => {

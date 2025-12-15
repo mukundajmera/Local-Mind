@@ -2,6 +2,7 @@
 
 /**
  * Sources Sidebar - Left panel with uploaded documents
+ * Checkbox = select for chat, Click title = view summary
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,7 +13,9 @@ export function SourcesSidebar() {
         sources,
         isLoadingSources,
         activeSourceId,
+        selectedSourceIds,
         setActiveSource,
+        toggleSourceSelection,
         setSources,
         setLoadingSources,
         setSourceGuide,
@@ -44,8 +47,8 @@ export function SourcesSidebar() {
         fetchSources();
     }, [fetchSources]);
 
-    // Handle source selection
-    const handleSelectSource = async (sourceId: string) => {
+    // Handle clicking source title to view summary
+    const handleViewSource = async (sourceId: string) => {
         setActiveSource(sourceId);
 
         // Mock source guide data for now
@@ -64,6 +67,12 @@ export function SourcesSidebar() {
             ],
         });
         setLoadingGuide(false);
+    };
+
+    // Handle checkbox toggle for chat selection
+    const handleCheckboxChange = (sourceId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        toggleSourceSelection(sourceId);
     };
 
     // Handle file upload
@@ -85,7 +94,7 @@ export function SourcesSidebar() {
                     if (errorData.error && errorData.error.message) {
                         errorMessage = errorData.error.message;
                     }
-                } catch (e) {
+                } catch {
                     // Could not parse JSON, use default message
                 }
                 setUploadError(errorMessage);
@@ -148,6 +157,13 @@ export function SourcesSidebar() {
                 />
             </div>
 
+            {/* Selection hint */}
+            {sources.length > 0 && (
+                <div className="px-3 py-2 text-xs theme-text-faint border-b border-glass">
+                    ☑️ = Chat with • Click title = View summary
+                </div>
+            )}
+
             {/* Sources List */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {uploadError && (
@@ -171,52 +187,79 @@ export function SourcesSidebar() {
                         </div>
                     </div>
                 ) : (
-                    sources.map((source) => (
-                        <div
-                            key={source.id}
-                            onClick={() => handleSelectSource(source.id)}
-                            className={`group flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all ${activeSourceId === source.id
-                                ? "bg-cyber-blue/20 border border-cyber-blue/40"
-                                : "hover:bg-glass-100 border border-transparent"
-                                }`}
-                            data-testid={`source-${source.id}`}
-                        >
-                            <div className="w-10 h-10 rounded-lg bg-cyber-purple/20 flex items-center justify-center shrink-0">
-                                <svg
-                                    className="w-5 h-5 text-cyber-purple"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                    />
-                                </svg>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium theme-text-primary truncate">
-                                    {source.title}
-                                </div>
-                                <div className="text-xs theme-text-muted mt-0.5">
-                                    {source.status === "ready" ? "✓ Ready" : "⏳ Processing..."}
-                                </div>
-                            </div>
-                            <button
-                                onClick={(e) => handleDeleteSource(source.id, e)}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400 transition-all"
-                                title="Delete source"
+                    sources.map((source) => {
+                        const isSelected = selectedSourceIds.includes(source.id);
+                        const isActive = activeSourceId === source.id;
+
+                        return (
+                            <div
+                                key={source.id}
+                                className={`source-file-card ${isActive ? 'active' : ''}`}
+                                data-testid={`source-${source.id}`}
                             >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                    ))
+                                {/* Checkbox for chat selection */}
+                                <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => { }}
+                                    onClick={(e) => handleCheckboxChange(source.id, e)}
+                                    className="source-checkbox mt-1"
+                                    data-testid={`source-checkbox-${source.id}`}
+                                    title="Select for chat"
+                                />
+
+                                {/* Source icon */}
+                                <div
+                                    className="w-10 h-10 rounded-lg bg-cyber-purple/20 flex items-center justify-center shrink-0 cursor-pointer"
+                                    onClick={() => handleViewSource(source.id)}
+                                >
+                                    <svg
+                                        className="w-5 h-5 text-cyber-purple"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        />
+                                    </svg>
+                                </div>
+
+                                {/* Source info - click to view summary */}
+                                <div
+                                    className="flex-1 min-w-0 cursor-pointer"
+                                    onClick={() => handleViewSource(source.id)}
+                                >
+                                    <div className="text-sm font-medium theme-text-primary truncate">
+                                        {source.title}
+                                    </div>
+                                    <div className="text-xs theme-text-muted mt-0.5 flex items-center gap-2">
+                                        <span>{source.status === "ready" ? "✓ Ready" : "⏳ Processing..."}</span>
+                                        {isSelected && (
+                                            <span className="text-cyber-blue">• Selected</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Delete button */}
+                                <button
+                                    onClick={(e) => handleDeleteSource(source.id, e)}
+                                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400 transition-all"
+                                    title="Delete source"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        );
+                    })
                 )}
             </div>
         </div>
     );
 }
+

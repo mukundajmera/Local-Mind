@@ -17,8 +17,8 @@ export default defineConfig({
     // Retry on CI only
     retries: process.env.CI ? 2 : 0,
 
-    // Opt out of parallel tests on CI
-    workers: process.env.CI ? 1 : undefined,
+    // Opt out of parallel tests on CI, use fewer workers locally for stability
+    workers: process.env.CI ? 1 : 3,
 
     // Reporter to use
     reporter: [
@@ -59,14 +59,14 @@ export default defineConfig({
 
     // Run local dev server before starting the tests
     webServer: {
-        command: 'WATCHPACK_POLLING=true npm run dev',
+        command: 'npm run dev',
         url: 'http://localhost:3000',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120 * 1000,
+        reuseExistingServer: true,
+        timeout: 180 * 1000,
     },
 
-    // Global timeout for each test
-    timeout: 30 * 1000,
+    // Global timeout for each test (increased for cold dev server start)
+    timeout: 60 * 1000,
 
     // Expect timeout
     expect: {

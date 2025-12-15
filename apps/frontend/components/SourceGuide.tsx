@@ -21,21 +21,43 @@ export function SourceGuide() {
     // Empty state when no source selected
     if (!activeSourceId) {
         return (
-            <div className="h-full flex items-center justify-center">
-                <div className="text-center max-w-md px-8">
-                    <div className="text-6xl mb-6">📚</div>
-                    <h2 className="text-2xl font-semibold theme-text-primary mb-3">
-                        Welcome to Local Mind
-                    </h2>
-                    <p className="theme-text-muted mb-6">
-                        Upload a document from the sidebar to get started. I&apos;ll generate a summary,
-                        extract key topics, and suggest questions to explore.
-                    </p>
-                    <div className="flex justify-center gap-3">
-                        <span className="theme-chip">📄 PDF</span>
-                        <span className="theme-chip">📝 Markdown</span>
-                        <span className="theme-chip">📑 TXT</span>
+            <div className="empty-state" data-testid="empty-state">
+                <div className="empty-state-icon">📚</div>
+                <h2 className="empty-state-title">
+                    Get Started with Local Mind
+                </h2>
+                <p className="empty-state-description">
+                    Upload documents and start exploring with AI. Here&apos;s how:
+                </p>
+
+                <div className="w-full max-w-md space-y-3 text-left mb-6">
+                    <div className="flex gap-3 items-start p-3 rounded-lg bg-glass-100">
+                        <span className="text-lg">1️⃣</span>
+                        <div>
+                            <strong className="theme-text-primary">Upload a source</strong>
+                            <p className="text-sm theme-text-muted">Click &quot;+ Add&quot; in the Sources panel</p>
+                        </div>
                     </div>
+                    <div className="flex gap-3 items-start p-3 rounded-lg bg-glass-100">
+                        <span className="text-lg">2️⃣</span>
+                        <div>
+                            <strong className="theme-text-primary">Select for chat</strong>
+                            <p className="text-sm theme-text-muted">☑️ Use checkbox to include in queries</p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3 items-start p-3 rounded-lg bg-glass-100">
+                        <span className="text-lg">3️⃣</span>
+                        <div>
+                            <strong className="theme-text-primary">View summary</strong>
+                            <p className="text-sm theme-text-muted">📄 Click the title to read insights</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex justify-center gap-3">
+                    <span className="theme-chip">📄 PDF</span>
+                    <span className="theme-chip">📝 Markdown</span>
+                    <span className="theme-chip">📑 TXT</span>
                 </div>
             </div>
         );

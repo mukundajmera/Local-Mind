@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Chat Panel - Clean conversational interface
+ * Chat Panel - Clean conversational interface with message pinning
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -30,6 +30,7 @@ interface Message {
     role: "user" | "assistant";
     content: string;
     timestamp: Date | null;
+    isPinned?: boolean;
 }
 
 /**
@@ -63,9 +64,10 @@ export function ChatPanel() {
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { activeSourceId, sources, setViewMode } = useWorkspaceStore();
+    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage } = useWorkspaceStore();
 
     const activeSource = sources.find(s => s.id === activeSourceId);
+    const selectedSources = sources.filter(s => selectedSourceIds.includes(s.id));
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -95,7 +97,7 @@ export function ChatPanel() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: userInput,
-                    context_node_ids: [],
+                    context_node_ids: selectedSourceIds,
                     strategies: ["sources"],
                 }),
             });
@@ -139,10 +141,28 @@ export function ChatPanel() {
         setInput(prompt);
     };
 
+    const handlePinMessage = (message: Message) => {
+        // Toggle pin state locally
+        setMessages((prev) =>
+            prev.map((m) =>
+                m.id === message.id ? { ...m, isPinned: !m.isPinned } : m
+            )
+        );
+
+        // Add to pinned messages store if pinning (not unpinning)
+        if (!message.isPinned) {
+            pinMessage({
+                id: message.id,
+                content: message.content,
+                pinnedAt: new Date(),
+            });
+        }
+    };
+
     return (
         <div className="flex flex-col h-full" data-testid="chat-panel">
             {/* Header */}
-            <div className="panel-header flex items-center justify-between">
+            <div className="panel-header flex items-center justify-between" data-testid="chat-header">
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setViewMode("guide")}
@@ -153,11 +173,18 @@ export function ChatPanel() {
                     </button>
                     <span>Chat</span>
                 </div>
-                {activeSource && (
-                    <span className="text-xs text-cyber-blue truncate max-w-[200px]">
-                        {activeSource.title}
-                    </span>
-                )}
+                <div className="flex items-center gap-2">
+                    {selectedSources.length > 0 && (
+                        <span className="text-xs theme-text-faint">
+                            {selectedSources.length} source{selectedSources.length > 1 ? 's' : ''} selected
+                        </span>
+                    )}
+                    {activeSource && (
+                        <span className="text-xs text-cyber-blue truncate max-w-[200px]">
+                            {activeSource.title}
+                        </span>
+                    )}
+                </div>
             </div>
 
             {/* Suggestions */}
@@ -167,6 +194,7 @@ export function ChatPanel() {
                         key={s.id}
                         onClick={() => handleSuggestion(s.prompt)}
                         className="text-xs px-3 py-1.5 rounded-full bg-glass-100 theme-text-muted hover:text-white hover:bg-glass-200 transition-colors"
+                        data-testid={`quick-action-${s.id}`}
                     >
                         {s.label}
                     </button>
@@ -174,33 +202,49 @@ export function ChatPanel() {
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-messages">
                 {messages.map((message) => (
                     <div
                         key={message.id}
                         className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                        data-testid={`message-${message.id}`}
+                        data-role={message.role}
                     >
                         <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === "user"
-                                ? "bg-cyber-blue/20 text-white"
-                                : "bg-glass-200 theme-text-primary"
+                            className={`message-bubble ${message.role === "user"
+                                ? "message-bubble-user"
+                                : "message-bubble-ai"
                                 }`}
                         >
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                            <p className="text-xs theme-text-faint mt-1">
-                                {message.timestamp ? (
-                                    <FormattedTime date={message.timestamp} />
-                                ) : (
-                                    <span className="opacity-50">--:--</span>
+                            <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs theme-text-faint">
+                                    {message.timestamp ? (
+                                        <FormattedTime date={message.timestamp} />
+                                    ) : (
+                                        <span className="opacity-50">--:--</span>
+                                    )}
+                                </span>
+
+                                {/* Pin button for AI messages */}
+                                {message.role === "assistant" && message.id !== "welcome" && (
+                                    <button
+                                        onClick={() => handlePinMessage(message)}
+                                        className={`pin-button ${message.isPinned ? 'pinned' : ''}`}
+                                        title={message.isPinned ? "Unpin from notes" : "Pin to notes"}
+                                        data-testid={`pin-btn-${message.id}`}
+                                    >
+                                        📌
+                                    </button>
                                 )}
-                            </p>
+                            </div>
                         </div>
                     </div>
                 ))}
 
                 {isLoading && (
-                    <div className="flex justify-start">
-                        <div className="bg-glass-200 rounded-2xl px-4 py-3">
+                    <div className="flex justify-start" data-testid="loading-indicator">
+                        <div className="message-bubble message-bubble-ai">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 bg-cyber-blue rounded-full animate-pulse" />
                                 <div className="w-2 h-2 bg-cyber-blue rounded-full animate-pulse delay-75" />
@@ -221,11 +265,13 @@ export function ChatPanel() {
                         placeholder="Ask about your documents..."
                         className="glass-input resize-none"
                         rows={1}
+                        data-testid="chat-input"
                     />
                     <button
                         onClick={handleSend}
                         disabled={!input.trim() || isLoading}
                         className="glass-button px-6 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-glow"
+                        data-testid="send-button"
                     >
                         <svg className="w-5 h-5 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -236,3 +282,4 @@ export function ChatPanel() {
         </div>
     );
 }
+

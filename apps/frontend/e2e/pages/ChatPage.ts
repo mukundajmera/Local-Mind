@@ -29,9 +29,9 @@ export class ChatPage {
     /** Loading indicator (typing dots) */
     readonly loadingIndicator: Locator;
 
-    // Quick action buttons
-    readonly generatePodcastButton: Locator;
-    readonly summarizeAllButton: Locator;
+    // Quick action buttons (match PROMPT_SUGGESTIONS in ChatPanel)
+    readonly summarizeButton: Locator;
+    readonly keyQuestionsButton: Locator;
     readonly deepDiveButton: Locator;
 
     constructor(page: Page) {
@@ -45,21 +45,45 @@ export class ChatPage {
         this.sendButton = page.getByTestId('send-button');
         this.loadingIndicator = page.getByTestId('loading-indicator');
 
-        // Quick action buttons
-        this.generatePodcastButton = page.getByTestId('quick-action-podcast');
-        this.summarizeAllButton = page.getByTestId('quick-action-summarize');
-        this.deepDiveButton = page.getByTestId('quick-action-deepdive');
+        // Quick action buttons - match IDs from PROMPT_SUGGESTIONS
+        this.summarizeButton = page.getByTestId('quick-action-summary');
+        this.keyQuestionsButton = page.getByTestId('quick-action-questions');
+        this.deepDiveButton = page.getByTestId('quick-action-compare');
     }
 
     // ===== Navigation =====
 
     /**
-     * Navigate to the main workspace page
+     * Navigate to the main workspace page and switch to chat mode
+     * Note: The app starts in 'guide' mode, so we need to switch to chat
      */
     async goto(): Promise<void> {
         await this.page.goto('/');
-        // Wait for chat panel to be visible and hydrated
-        await this.chatPanel.waitFor({ state: 'visible' });
+
+        // Wait for the page to hydrate (Sources sidebar appears)
+        await this.page.waitForSelector('text=Sources', { timeout: 30000 });
+
+        // The app starts in 'guide' mode, so we need to either:
+        // 1. Click 'Start Chat' button if a source is selected
+        // 2. Or switch viewMode directly via store (not testable)
+
+        // Try to find and click the Start Chat button
+        const startChatBtn = this.page.getByTestId('start-chat-btn');
+        const hasStartChatBtn = await startChatBtn.count() > 0;
+
+        if (hasStartChatBtn) {
+            await startChatBtn.click();
+        } else {
+            // If no Start Chat button, try clicking "Chat" in the header mode selector
+            const chatModeBtn = this.page.getByRole('button', { name: 'Chat' });
+            const hasChatBtn = await chatModeBtn.count() > 0;
+            if (hasChatBtn) {
+                await chatModeBtn.click();
+            }
+        }
+
+        // Wait for chat panel to be visible
+        await this.chatPanel.waitFor({ state: 'visible', timeout: 10000 });
     }
 
     // ===== Message Actions =====
@@ -146,7 +170,7 @@ export class ChatPage {
      */
     async expectPanelVisible(): Promise<void> {
         await expect(this.chatPanel).toBeVisible();
-        await expect(this.chatHeader).toContainText('Cognitive Stream');
+        await expect(this.chatHeader).toContainText('Chat');
     }
 
     /**
@@ -155,7 +179,7 @@ export class ChatPage {
     async expectWelcomeMessage(): Promise<void> {
         const welcomeMessage = this.getMessageById('welcome');
         await expect(welcomeMessage).toBeVisible();
-        await expect(welcomeMessage).toContainText('Sovereign Cognitive Engine');
+        await expect(welcomeMessage).toContainText('ready to help you explore');
     }
 
     /**
@@ -184,8 +208,8 @@ export class ChatPage {
      * Assert that quick action buttons are visible
      */
     async expectQuickActionsVisible(): Promise<void> {
-        await expect(this.generatePodcastButton).toBeVisible();
-        await expect(this.summarizeAllButton).toBeVisible();
+        await expect(this.summarizeButton).toBeVisible();
+        await expect(this.keyQuestionsButton).toBeVisible();
         await expect(this.deepDiveButton).toBeVisible();
     }
 }

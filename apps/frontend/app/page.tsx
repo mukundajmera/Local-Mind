@@ -5,6 +5,7 @@ import { NotesSidebar } from "@/components/panels/NotesSidebar";
 import { SourceGuide } from "@/components/SourceGuide";
 import { ChatPanel } from "@/components/panels/ChatPanel";
 import { NotebookHeader } from "@/components/primitives/NotebookHeader";
+import { HelpModal } from "@/components/HelpModal";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 
 /**
@@ -14,7 +15,7 @@ import { useWorkspaceStore } from "@/store/workspaceStore";
  * - Right: Notes sidebar (collapsible)
  */
 export default function WorkspacePage() {
-    const { viewMode, isNotesPanelOpen, toggleNotesPanel } = useWorkspaceStore();
+    const { viewMode, isNotesPanelOpen, toggleNotesPanel, isLeftSidebarOpen } = useWorkspaceStore();
 
     return (
         <div className="h-full flex flex-col gap-4">
@@ -22,7 +23,7 @@ export default function WorkspacePage() {
 
             <div className="flex-1 flex gap-4 min-h-0">
                 {/* Left Sidebar - Sources */}
-                <aside className="w-72 glass-panel flex flex-col overflow-hidden shrink-0">
+                <aside className={`w-72 glass-panel flex flex-col overflow-hidden shrink-0 sidebar-collapsible ${!isLeftSidebarOpen ? 'collapsed' : ''}`}>
                     <SourcesSidebar />
                 </aside>
 
@@ -38,6 +39,10 @@ export default function WorkspacePage() {
                     </aside>
                 )}
             </div>
+
+            {/* Help Modal */}
+            <HelpModal />
         </div>
     );
 }
+

@@ -18,7 +18,27 @@ const config: Config = {
                     300: "rgba(255, 255, 255, 0.20)",
                     400: "rgba(255, 255, 255, 0.30)",
                 },
-                // Cyber accent colors
+                // Research-focused neutral palette
+                research: {
+                    white: "#ffffff",
+                    offWhite: "#fafbfc",
+                    bg: "#f8f9fa",
+                    surface: "#f1f3f5",
+                    border: "#e5e7eb",
+                    borderLight: "#f0f1f3",
+                    text: {
+                        primary: "#1a1a2e",
+                        secondary: "#4a5568",
+                        muted: "#718096",
+                        faint: "#a0aec0",
+                    },
+                    accent: {
+                        blue: "#4f46e5",
+                        blueLight: "#818cf8",
+                        blueBg: "#eef2ff",
+                    },
+                },
+                // Cyber accent colors (preserved for dark mode)
                 cyber: {
                     blue: "#00d4ff",
                     purple: "#a855f7",
@@ -42,6 +62,10 @@ const config: Config = {
                 "glass-inset": "inset 0 1px 0 rgba(255, 255, 255, 0.1)",
                 glow: "0 0 20px rgba(0, 212, 255, 0.3)",
                 "glow-purple": "0 0 20px rgba(168, 85, 247, 0.3)",
+                // Research card shadows
+                "card": "0 1px 3px rgba(0, 0, 0, 0.05)",
+                "card-hover": "0 4px 12px rgba(0, 0, 0, 0.1)",
+                "card-elevated": "0 8px 24px rgba(0, 0, 0, 0.12)",
             },
             borderColor: {
                 glass: "rgba(255, 255, 255, 0.1)",
