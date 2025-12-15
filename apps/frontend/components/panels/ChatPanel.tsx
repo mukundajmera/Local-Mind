@@ -146,7 +146,7 @@ export function ChatPanel() {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setViewMode("guide")}
-                        className="text-white/60 hover:text-white transition-colors"
+                        className="theme-text-muted hover:text-white transition-colors"
                         title="Back to guide"
                     >
                         ←
@@ -166,7 +166,7 @@ export function ChatPanel() {
                     <button
                         key={s.id}
                         onClick={() => handleSuggestion(s.prompt)}
-                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 text-white/60 hover:text-white hover:bg-glass-200 transition-colors"
+                        className="text-xs px-3 py-1.5 rounded-full bg-glass-100 theme-text-muted hover:text-white hover:bg-glass-200 transition-colors"
                     >
                         {s.label}
                     </button>
@@ -182,12 +182,12 @@ export function ChatPanel() {
                     >
                         <div
                             className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === "user"
-                                    ? "bg-cyber-blue/20 text-white"
-                                    : "bg-glass-200 text-white/90"
+                                ? "bg-cyber-blue/20 text-white"
+                                : "bg-glass-200 theme-text-primary"
                                 }`}
                         >
                             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                            <p className="text-xs text-white/40 mt-1">
+                            <p className="text-xs theme-text-faint mt-1">
                                 {message.timestamp ? (
                                     <FormattedTime date={message.timestamp} />
                                 ) : (

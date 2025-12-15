@@ -95,9 +95,17 @@ body {
 }
 
 @keyframes gradient-shift {
-  0% { background-position: 0% 0%; }
-  50% { background-position: 100% 100%; }
-  100% { background-position: 0% 0%; }
+  0% {
+    background-position: 0% 0%;
+  }
+
+  50% {
+    background-position: 100% 100%;
+  }
+
+  100% {
+    background-position: 0% 0%;
+  }
 }
 
 /* Glass panel component */
@@ -171,23 +179,26 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(128, 128, 128, 0.1);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(128, 128, 128, 0.3);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(128, 128, 128, 0.5);
 }
 
 /* Selection styling */
 ::selection {
   background: rgba(0, 212, 255, 0.3);
-  color: white;
+}
+
+body[data-theme="light"] ::selection {
+  background: rgba(59, 130, 246, 0.3);
 }
 
 /* Focus ring for accessibility */
@@ -205,13 +216,11 @@ body {
 /* Audio waveform placeholder */
 .waveform-container {
   @apply h-16 bg-glass-50 rounded-lg overflow-hidden;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 212, 255, 0.1) 2px,
-    rgba(0, 212, 255, 0.1) 3px
-  );
+  background: repeating-linear-gradient(90deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 212, 255, 0.1) 2px,
+      rgba(0, 212, 255, 0.1) 3px);
 }
 
 /* Source Guide Cards */

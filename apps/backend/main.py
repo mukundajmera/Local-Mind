@@ -12,6 +12,7 @@ from config import Settings, get_settings
 from typing import List, Optional
 import os
 import sys
+from pathlib import Path
 from services.graph_analytics import GraphAnalytics
 from services.search import HybridRetriever
 from services.llm_factory import LLMService
@@ -141,6 +142,11 @@ async def local_mind_exception_handler(request: Request, exc: LocalMindBaseExcep
         status_code = 400
     elif isinstance(exc, DatabaseConnectionError):
         status_code = 503
+    elif isinstance(exc, IngestionError) and exc.original_error:
+        # Check if wrapped error is connection related
+        error_msg = str(exc.original_error).lower()
+        if "connection refused" in error_msg or "failed to connect" in error_msg or "fail connecting" in error_msg or "illegal connection params" in error_msg:
+             status_code = 503
     
     return JSONResponse(
         status_code=status_code,
@@ -403,7 +409,6 @@ async def _generate_briefing_background(doc_id: str, file_path):
         
         # Read the document text
         from services.ingestion import DocumentParser
-        from pathlib import Path
         
         file_path_obj = Path(file_path)
         if file_path_obj.suffix.lower() == ".pdf":
@@ -439,7 +444,6 @@ async def upload_source(file: UploadFile = File(...), background_tasks: Backgrou
     
     # Save file to configured upload directory with unique filename
     import shutil
-    from pathlib import Path
     from services.ingestion import IngestionPipeline
     
     unique_filename = f"{uuid.uuid4()}_{file.filename}"

@@ -27,7 +27,7 @@ export function SourceGuide() {
                     <h2 className="text-2xl font-semibold theme-text-primary mb-3">
                         Welcome to Local Mind
                     </h2>
-                    <p className="text-white/60 mb-6">
+                    <p className="theme-text-muted mb-6">
                         Upload a document from the sidebar to get started. I&apos;ll generate a summary,
                         extract key topics, and suggest questions to explore.
                     </p>
@@ -47,7 +47,7 @@ export function SourceGuide() {
             <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                     <div className="w-8 h-8 border-2 border-cyber-blue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-white/60">Analyzing document...</p>
+                    <p className="theme-text-muted">Analyzing document...</p>
                 </div>
             </div>
         );
@@ -60,7 +60,7 @@ export function SourceGuide() {
                 <h1 className="text-2xl font-semibold theme-text-primary">
                     {activeSource?.title || "Document"}
                 </h1>
-                <p className="text-sm text-white/50 mt-1">
+                <p className="text-sm theme-text-muted mt-1">
                     {activeSource?.filename}
                 </p>
             </div>
@@ -73,7 +73,7 @@ export function SourceGuide() {
                         <span className="text-xl">📋</span>
                         <h3 className="text-lg font-semibold theme-text-primary">Summary</h3>
                     </div>
-                    <p className="text-white/80 leading-relaxed">
+                    <p className="theme-text-primary leading-relaxed">
                         {sourceGuide?.summary || "No summary available."}
                     </p>
                 </div>
@@ -89,7 +89,7 @@ export function SourceGuide() {
                             <span key={index} className="topic-chip">
                                 {topic}
                             </span>
-                        )) || <span className="text-white/50">No topics extracted.</span>}
+                        )) || <span className="theme-text-muted">No topics extracted.</span>}
                     </div>
                 </div>
 
@@ -104,11 +104,11 @@ export function SourceGuide() {
                             <button
                                 key={index}
                                 onClick={() => setViewMode("chat")}
-                                className="w-full text-left p-3 rounded-lg bg-glass-100 hover:bg-glass-200 text-white/80 hover:text-white text-sm transition-colors"
+                                className="w-full text-left p-3 rounded-lg bg-glass-100 hover:bg-glass-200 theme-text-primary hover:text-white text-sm transition-colors"
                             >
                                 {question}
                             </button>
-                        )) || <span className="text-white/50">No questions available.</span>}
+                        )) || <span className="theme-text-muted">No questions available.</span>}
                     </div>
                 </div>
             </div>

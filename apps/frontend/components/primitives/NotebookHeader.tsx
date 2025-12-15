@@ -38,7 +38,7 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
                                 "px-3 py-1.5 text-xs rounded-full transition-colors",
                                 mode.key === activeMode
                                     ? "bg-cyber-blue/20 text-cyber-blue"
-                                    : "text-white/60 hover:text-white hover:bg-glass-100",
+                                    : "theme-text-muted hover:text-white hover:bg-glass-100",
                             )}
                             type="button"
                         >
@@ -56,7 +56,7 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
                             "p-2 rounded-lg transition-colors",
                             isNotesOpen
                                 ? "bg-cyber-blue/20 text-cyber-blue"
-                                : "text-white/60 hover:text-white hover:bg-glass-100"
+                                : "theme-text-muted hover:text-white hover:bg-glass-100"
                         )}
                         title={isNotesOpen ? "Hide notes" : "Show notes"}
                     >
@@ -65,7 +65,7 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
                         </svg>
                     </button>
                 )}
-                <div className="hidden sm:flex items-center gap-2 text-xs text-white/60">
+                <div className="hidden sm:flex items-center gap-2 text-xs theme-text-muted">
                     <span>Status:</span>
                     <span className="flex items-center gap-1 text-cyber-blue">
                         <span className="w-2 h-2 rounded-full bg-cyber-blue animate-pulse" />

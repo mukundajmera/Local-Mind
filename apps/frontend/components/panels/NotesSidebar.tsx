@@ -58,7 +58,7 @@ export function NotesSidebar() {
                 <span>Notes</span>
                 <button
                     onClick={toggleNotesPanel}
-                    className="text-white/40 hover:text-white transition-colors"
+                    className="theme-text-faint hover:text-white transition-colors"
                     title="Close notes"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,7 +89,7 @@ export function NotesSidebar() {
             {/* Notes List */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {notes.length === 0 ? (
-                    <div className="text-center py-8 text-white/40 text-sm">
+                    <div className="text-center py-8 theme-text-faint text-sm">
                         No notes yet. Add one above!
                     </div>
                 ) : (
@@ -97,15 +97,15 @@ export function NotesSidebar() {
                         <div
                             key={note.id}
                             className={`group p-3 rounded-lg border transition-colors ${note.isPinned
-                                    ? "bg-cyber-blue/10 border-cyber-blue/30"
-                                    : "bg-glass-100 border-transparent hover:border-glass"
+                                ? "bg-cyber-blue/10 border-cyber-blue/30"
+                                : "bg-glass-100 border-transparent hover:border-glass"
                                 }`}
                         >
-                            <p className="text-sm text-white/80 whitespace-pre-wrap">
+                            <p className="text-sm theme-text-primary whitespace-pre-wrap">
                                 {note.content}
                             </p>
                             <div className="flex items-center justify-between mt-2">
-                                <span className="text-xs text-white/40">
+                                <span className="text-xs theme-text-faint">
                                     {note.createdAt.toLocaleTimeString(undefined, {
                                         hour: "2-digit",
                                         minute: "2-digit",
@@ -115,8 +115,8 @@ export function NotesSidebar() {
                                     <button
                                         onClick={() => handleTogglePin(note.id)}
                                         className={`p-1 rounded transition-colors ${note.isPinned
-                                                ? "text-cyber-blue"
-                                                : "text-white/40 hover:text-white"
+                                            ? "text-cyber-blue"
+                                            : "theme-text-faint hover:text-white"
                                             }`}
                                         title={note.isPinned ? "Unpin" : "Pin"}
                                     >
@@ -124,7 +124,7 @@ export function NotesSidebar() {
                                     </button>
                                     <button
                                         onClick={() => handleDeleteNote(note.id)}
-                                        className="p-1 rounded text-white/40 hover:text-red-400 transition-colors"
+                                        className="p-1 rounded theme-text-faint hover:text-red-400 transition-colors"
                                         title="Delete"
                                     >
                                         🗑️

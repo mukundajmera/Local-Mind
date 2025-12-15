@@ -599,6 +599,22 @@ class IngestionPipeline:
             
         except MilvusException as e:
             logger.error(f"Milvus persistence failed: {e}")
+            # Extract clean message if available
+            msg = e.message if hasattr(e, 'message') else str(e)
+            
+            # Get context from first chunk if available
+            doc_id = str(chunks[0].doc_id) if chunks else "unknown"
+            
+            from exceptions import IngestionError
+            raise IngestionError(
+                message=f"Failed to persist to Milvus: {msg}",
+                doc_id=doc_id,
+                filename="unknown",
+                stage="milvus_persistence",
+                original_error=e
+            )
+        except Exception as e:
+            logger.error(f"Milvus persistence failed: {e}")
             raise
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
