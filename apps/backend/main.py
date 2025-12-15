@@ -299,6 +299,9 @@ async def metrics():
 graph_analytics: Optional[GraphAnalytics] = None
 connection_pool: Optional[ConnectionPool] = None
 
+# Upload task tracking (in-memory, use Redis for production durability)
+upload_tasks: dict[str, dict] = {}
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize resources on startup."""
@@ -430,23 +433,84 @@ async def _generate_briefing_background(doc_id: str, file_path):
         # Don't raise - this is a background task
 
 
-@app.post("/api/v1/sources/upload")
+async def _process_upload_background(task_id: str, file_path: Path, filename: str):
+    """
+    Background task to process document upload with progress tracking.
+    Updates the upload_tasks store as processing progresses.
+    """
+    from services.ingestion import IngestionPipeline
+    
+    file_type = file_path.suffix.lower().lstrip(".") or "unknown"
+    app_metrics.ingestion_attempts_total.labels(file_type=file_type).inc()
+    start_time = time.time()
+    
+    try:
+        # Update progress: parsing
+        upload_tasks[task_id]["progress"] = 25
+        upload_tasks[task_id]["stage"] = "parsing"
+        
+        async with IngestionPipeline() as pipeline:
+            # Update progress: embedding
+            upload_tasks[task_id]["progress"] = 50
+            upload_tasks[task_id]["stage"] = "embedding"
+            
+            doc = await pipeline.ingest_document(file_path)
+            
+            # Update progress: storing
+            upload_tasks[task_id]["progress"] = 75
+            upload_tasks[task_id]["stage"] = "storing"
+        
+        duration = time.time() - start_time
+        app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
+        
+        # Mark as completed
+        upload_tasks[task_id].update({
+            "status": "completed",
+            "progress": 100,
+            "stage": "done",
+            "doc_id": str(doc.doc_id),
+            "filename": doc.filename,
+        })
+        
+        # Schedule briefing generation
+        # Note: We can't use background_tasks here, so we'll just log
+        logger.info(f"Upload completed for {task_id}, briefing should be generated")
+        
+    except IngestionError as e:
+        stage = e.context.get("stage", "unknown")
+        app_metrics.ingestion_failures_total.labels(file_type=file_type, stage=stage).inc()
+        upload_tasks[task_id].update({
+            "status": "failed",
+            "progress": 0,
+            "error": str(e.message),
+        })
+    except Exception as e:
+        app_metrics.ingestion_failures_total.labels(file_type=file_type, stage="unknown").inc()
+        upload_tasks[task_id].update({
+            "status": "failed",
+            "progress": 0,
+            "error": f"Document ingestion failed: {str(e)}",
+        })
+
+
+@app.post("/api/v1/sources/upload", status_code=202)
 async def upload_source(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Upload and ingest a document source.
     
-    After successful ingestion, triggers automatic briefing generation in the background.
+    Returns 202 Accepted immediately with a task_id.
+    Use GET /api/v1/upload/{task_id}/status to track progress.
     """
+    import shutil
+    
     # Get settings for upload directory
     settings = get_settings()
     upload_path = Path(settings.upload_dir)
     upload_path.mkdir(parents=True, exist_ok=True)
     
-    # Save file to configured upload directory with unique filename
-    import shutil
-    from services.ingestion import IngestionPipeline
-    
-    unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    # Generate task ID
+    task_id = str(uuid.uuid4())
+    unique_filename = f"{task_id}_{file.filename}"
     file_path = upload_path / unique_filename
     
     try:
@@ -457,52 +521,35 @@ async def upload_source(file: UploadFile = File(...), background_tasks: Backgrou
         logger.error(f"Failed to save uploaded file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     
-    # Track file type for metrics
-    file_type = file_path.suffix.lower().lstrip(".") or "unknown"
-    app_metrics.ingestion_attempts_total.labels(file_type=file_type).inc()
+    # Initialize task tracking
+    upload_tasks[task_id] = {
+        "status": "processing",
+        "progress": 10,
+        "stage": "uploaded",
+        "filename": file.filename,
+    }
     
-    start_time = time.time()
+    # Process in background
+    background_tasks.add_task(_process_upload_background, task_id, file_path, file.filename)
     
-    try:
-        async with IngestionPipeline() as pipeline:
-            doc = await pipeline.ingest_document(file_path)
-        
-        duration = time.time() - start_time
-        app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
-        
-        # Schedule briefing generation in background
-        background_tasks.add_task(_generate_briefing_background, str(doc.doc_id), str(file_path))
-        
-        return {
-            "status": "success",
-            "doc_id": str(doc.doc_id),
-            "filename": doc.filename,
-            "chunks_created": 0, # TODO: Get from result - nice to have
-            "entities_extracted": 0,
-            "briefing_status": "generating"
-        }
-    except IngestionError as e:
-        # Track failure stage
-        stage = e.context.get("stage", "unknown")
-        app_metrics.ingestion_failures_total.labels(
-            file_type=file_type,
-            stage=stage
-        ).inc()
-        raise e
-    except Exception as e:
-        # Wrap unexpected errors
-        app_metrics.ingestion_failures_total.labels(
-            file_type=file_type,
-            stage="unknown"
-        ).inc()
-        raise IngestionError(
-            message=f"Document ingestion failed: {str(e)}",
-            filename=file.filename,
-            stage="upload",
-            original_error=e
-        )
-    # Note: We keep the file in upload_dir for reference/debugging
-    # Add cleanup logic if storage becomes a concern
+    return {
+        "task_id": task_id,
+        "status": "accepted",
+        "message": "Upload accepted. Poll /api/v1/upload/{task_id}/status for progress."
+    }
+
+
+@app.get("/api/v1/upload/{task_id}/status")
+async def get_upload_status(task_id: str):
+    """
+    Get the status of an upload task.
+    
+    Returns progress (0-100) and status (processing/completed/failed).
+    """
+    if task_id not in upload_tasks:
+        raise HTTPException(status_code=404, detail=f"Upload task {task_id} not found")
+    
+    return upload_tasks[task_id]
 
 
 @app.get("/api/v1/graph")

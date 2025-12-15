@@ -1,17 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 
-const MODES = [
-    { key: "insight", label: "Insight Stream" },
-    { key: "podcast", label: "Podcast Studio" },
-    { key: "organize", label: "Notebook" },
+const NAV_ITEMS = [
+    { href: "/", label: "Research Studio" },
+    { href: "/insights", label: "Insight Stream" },
+    { href: "/podcast", label: "Podcast Studio" },
+    { href: "/notebook", label: "Notebook" },
 ] as const;
-
-type ModeKey = typeof MODES[number]["key"];
 
 interface NotebookHeaderProps {
     onToggleNotes?: () => void;
@@ -19,7 +19,7 @@ interface NotebookHeaderProps {
 }
 
 export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderProps) {
-    const [activeMode, setActiveMode] = useState<ModeKey>("insight");
+    const pathname = usePathname();
     const { toggleHelpModal } = useWorkspaceStore();
 
     return (
@@ -27,26 +27,26 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-3">
                     <span className="theme-badge">Local Mind</span>
-                    <h1 className="text-lg font-semibold theme-text-primary">
-                        Research Studio
-                    </h1>
                 </div>
-                <nav className="hidden md:flex items-center gap-1">
-                    {MODES.map((mode) => (
-                        <button
-                            key={mode.key}
-                            onClick={() => setActiveMode(mode.key)}
-                            className={cn(
-                                "px-3 py-1.5 text-xs rounded-full transition-colors",
-                                mode.key === activeMode
-                                    ? "bg-cyber-blue/20 text-cyber-blue"
-                                    : "theme-text-muted hover:text-white hover:bg-glass-100",
-                            )}
-                            type="button"
-                        >
-                            {mode.label}
-                        </button>
-                    ))}
+                <nav className="hidden md:flex items-center gap-1" data-testid="main-nav">
+                    {NAV_ITEMS.map((item) => {
+                        const isActive = pathname === item.href;
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className={cn(
+                                    "px-3 py-1.5 text-xs rounded-full transition-colors",
+                                    isActive
+                                        ? "bg-cyber-blue/20 text-cyber-blue font-semibold border-b-2 border-cyber-blue"
+                                        : "theme-text-muted hover:text-white hover:bg-glass-100",
+                                )}
+                                data-testid={`nav-${item.href.replace("/", "") || "home"}`}
+                            >
+                                {item.label}
+                            </Link>
+                        );
+                    })}
                 </nav>
             </div>
             <div className="flex items-center gap-3">

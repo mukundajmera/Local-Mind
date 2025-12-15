@@ -3,10 +3,12 @@
 /**
  * Sources Sidebar - Left panel with uploaded documents
  * Checkbox = select for chat, Click title = view summary
+ * Features async upload with progress tracking
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useUploadProgress } from "@/hooks/useUploadProgress";
 
 export function SourcesSidebar() {
     const {
@@ -23,8 +25,12 @@ export function SourcesSidebar() {
     } = useWorkspaceStore();
 
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const [uploadTaskId, setUploadTaskId] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Use the upload progress hook
+    const { status: uploadStatus, progress, error: uploadProgressError, isComplete, isFailed, reset: resetUpload } = useUploadProgress(uploadTaskId);
 
     // Fetch sources from API
     const fetchSources = useCallback(async () => {
@@ -47,26 +53,62 @@ export function SourcesSidebar() {
         fetchSources();
     }, [fetchSources]);
 
+    // When upload completes, refresh sources and reset
+    useEffect(() => {
+        if (isComplete) {
+            fetchSources();
+            // Reset after a brief delay to show 100% completion
+            setTimeout(() => {
+                setUploadTaskId(null);
+                resetUpload();
+            }, 1000);
+        }
+    }, [isComplete, fetchSources, resetUpload]);
+
+    // Handle upload failure
+    useEffect(() => {
+        if (isFailed && uploadProgressError) {
+            setUploadError(uploadProgressError);
+            setUploadTaskId(null);
+            resetUpload();
+        }
+    }, [isFailed, uploadProgressError, resetUpload]);
+
     // Handle clicking source title to view summary
     const handleViewSource = async (sourceId: string) => {
         setActiveSource(sourceId);
 
-        // Mock source guide data for now
-        // TODO: Replace with actual API call to /api/v1/sources/{id}/guide
+        // Try to fetch actual briefing from API
         setLoadingGuide(true);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate loading
-
-        const source = sources.find(s => s.id === sourceId);
-        setSourceGuide({
-            summary: `This document "${source?.title || 'Untitled'}" contains valuable insights about the topic. The key themes include research findings, methodology, and conclusions drawn from the analysis.`,
-            topics: ["Research Methods", "Key Findings", "Analysis", "Conclusions", "Future Work"],
-            suggestedQuestions: [
-                "What are the main conclusions of this document?",
-                "How does the methodology compare to other approaches?",
-                "What are the key findings and their implications?",
-            ],
-        });
-        setLoadingGuide(false);
+        try {
+            const response = await fetch(`http://localhost:8000/api/v1/sources/${sourceId}/briefing`);
+            if (response.ok) {
+                const data = await response.json();
+                setSourceGuide({
+                    summary: data.summary,
+                    topics: data.key_topics,
+                    suggestedQuestions: data.suggested_questions,
+                });
+            } else {
+                // Fallback to placeholder if briefing not ready
+                const source = sources.find(s => s.id === sourceId);
+                setSourceGuide({
+                    summary: `This document "${source?.title || 'Untitled'}" is being processed. The briefing will be available shortly.`,
+                    topics: ["Processing..."],
+                    suggestedQuestions: ["What are the main topics in this document?"],
+                });
+            }
+        } catch (error) {
+            console.error("Failed to fetch briefing:", error);
+            const source = sources.find(s => s.id === sourceId);
+            setSourceGuide({
+                summary: `This document "${source?.title || 'Untitled'}" contains valuable insights about the topic.`,
+                topics: ["Key Findings", "Analysis", "Conclusions"],
+                suggestedQuestions: ["What are the main conclusions of this document?"],
+            });
+        } finally {
+            setLoadingGuide(false);
+        }
     };
 
     // Handle checkbox toggle for chat selection
@@ -75,9 +117,11 @@ export function SourcesSidebar() {
         toggleSourceSelection(sourceId);
     };
 
-    // Handle file upload
+    // Handle file upload - now returns immediately with task_id
     const handleFileUpload = async (file: File) => {
         setUploadError(null);
+        setUploadTaskId(null);
+
         try {
             const formData = new FormData();
             formData.append("file", file);
@@ -93,6 +137,8 @@ export function SourcesSidebar() {
                     const errorData = await response.json();
                     if (errorData.error && errorData.error.message) {
                         errorMessage = errorData.error.message;
+                    } else if (errorData.detail) {
+                        errorMessage = errorData.detail;
                     }
                 } catch {
                     // Could not parse JSON, use default message
@@ -101,10 +147,14 @@ export function SourcesSidebar() {
                 return;
             }
 
-            // Refresh sources
-            await fetchSources();
+            // Get task_id and start polling
+            const data = await response.json();
+            if (data.task_id) {
+                setUploadTaskId(data.task_id);
+            }
         } catch (error) {
             console.error("Upload error:", error);
+            setUploadError("Upload failed. Please try again.");
         }
     };
 
@@ -166,9 +216,33 @@ export function SourcesSidebar() {
 
             {/* Sources List */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {/* Upload Progress Bar */}
+                {uploadTaskId && (
+                    <div className="p-3 bg-cyber-blue/10 border border-cyber-blue/20 rounded-xl mb-2" data-testid="upload-progress">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-cyber-blue">
+                                {uploadStatus === "processing" ? "Processing..." : "Uploading..."}
+                            </span>
+                            <span className="text-xs theme-text-muted">{progress}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-glass-100 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-cyber-blue transition-all duration-300 rounded-full"
+                                style={{ width: `${progress}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
                 {uploadError && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 mb-2">
-                        {uploadError}
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 mb-2 flex items-center justify-between">
+                        <span>{uploadError}</span>
+                        <button
+                            onClick={() => setUploadError(null)}
+                            className="ml-2 hover:text-red-300"
+                            title="Dismiss"
+                        >
+                            ✕
+                        </button>
                     </div>
                 )}
                 {isLoadingSources ? (

@@ -97,7 +97,7 @@ export function ChatPanel() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: userInput,
-                    context_node_ids: selectedSourceIds,
+                    source_ids: selectedSourceIds.length > 0 ? selectedSourceIds : null,
                     strategies: ["sources"],
                 }),
             });
