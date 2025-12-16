@@ -13,7 +13,6 @@ from typing import List, Optional
 import os
 import sys
 from pathlib import Path
-from services.graph_analytics import GraphAnalytics
 from services.search import HybridRetriever
 from services.llm_factory import LLMService
 from services.briefing_service import BriefingService
@@ -219,16 +218,7 @@ async def health_check():
         try:
             pool_health = await connection_pool.health_check()
             
-            # Neo4j
-            services["neo4j"] = pool_health.get("neo4j", "unknown")
-            if services["neo4j"] == "healthy":
-                app_metrics.neo4j_is_healthy.set(1)
-            else:
-                app_metrics.neo4j_is_healthy.set(0)
-                app_metrics.neo4j_connection_errors_total.inc()
-                overall_healthy = False
-            
-            # Milvus
+            # Milvus (primary vector store)
             services["milvus"] = pool_health.get("milvus", "unknown")
             if services["milvus"] == "healthy":
                 app_metrics.milvus_is_healthy.set(1)
@@ -239,12 +229,10 @@ async def health_check():
                 
         except Exception as e:
             logger.warning("Connection pool health check failed", error=str(e))
-            services["neo4j"] = "unknown"
             services["milvus"] = "unknown"
             overall_healthy = False
     else:
         # Connection pool not initialized
-        services["neo4j"] = "not_initialized"
         services["milvus"] = "not_initialized"
         overall_healthy = False
     
@@ -296,7 +284,6 @@ async def metrics():
 
 
 # Global instances
-graph_analytics: Optional[GraphAnalytics] = None
 connection_pool: Optional[ConnectionPool] = None
 
 # Upload task tracking (in-memory, use Redis for production durability)
@@ -323,7 +310,6 @@ async def startup_event():
         "Starting backend",
         environment=settings.environment,
         milvus_uri=settings.milvus_uri,
-        neo4j_uri=settings.neo4j_uri,
     )
     
     # 3. Initialize connection pool
@@ -334,17 +320,9 @@ async def startup_event():
     except Exception as e:
         logger.error("Failed to initialize connection pool", error=str(e), exc_info=True)
         print(f"❌ Failed to connect to databases: {e}", file=sys.stderr)
-        print("Please ensure Neo4j and Milvus are running and accessible.", file=sys.stderr)
+        print("Please ensure Milvus is running and accessible.", file=sys.stderr)
         # Don't exit - allow startup to continue with degraded functionality
         # Health checks will report the issue
-    
-    # 4. Initialize GraphAnalytics (for compatibility)
-    try:
-        global graph_analytics
-        graph_analytics = GraphAnalytics()
-        logger.info("GraphAnalytics initialized successfully")
-    except Exception as e:
-        logger.error("Failed to initialize GraphAnalytics", error=str(e), exc_info=True)
 
 
 @app.on_event("shutdown")
@@ -367,10 +345,11 @@ async def shutdown_event():
 
 @app.get("/api/v1/sources")
 async def list_sources():
-    """List all ingested sources."""
+    """List all ingested sources from Milvus."""
     try:
-        async with GraphAnalytics() as analytics:
-            sources = await analytics.get_all_documents()
+        from services.ingestion import IngestionPipeline
+        async with IngestionPipeline() as pipeline:
+            sources = await pipeline.get_all_sources()
         return {"sources": sources}
     except Exception as e:
         logger.error(f"Failed to list sources: {e}", exc_info=True)
@@ -381,14 +360,14 @@ async def list_sources():
 @app.delete("/api/v1/sources/{doc_id}")
 async def delete_source(doc_id: str):
     """
-    Delete a document source and its associated data.
+    Delete a document source and its associated data from Milvus.
     
-    Removes the document and all chunks from the knowledge graph.
-    Entities are preserved as they may be referenced by other documents.
+    Removes the document and all chunks from the vector store.
     """
     try:
-        async with GraphAnalytics() as analytics:
-            result = await analytics.delete_document(doc_id)
+        from services.ingestion import IngestionPipeline
+        async with IngestionPipeline() as pipeline:
+            result = await pipeline.delete_document(doc_id)
         
         if not result.get("found", True):
             raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
@@ -551,18 +530,6 @@ async def get_upload_status(task_id: str):
     
     return upload_tasks[task_id]
 
-
-@app.get("/api/v1/graph")
-async def get_graph():
-    """Get knowledge graph data for visualization."""
-    try:
-        async with GraphAnalytics() as analytics:
-            data = await analytics.get_graph_data(limit=1000)
-        return data
-    except Exception as e:
-        logger.error(f"Failed to get graph: {e}", exc_info=True)
-        # Return empty graph for graceful degradation
-        return {"nodes": [], "links": []}
 
 
 

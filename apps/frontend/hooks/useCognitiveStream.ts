@@ -3,11 +3,11 @@
 /**
  * Sovereign Cognitive Engine - Cognitive Stream Hook
  * ===================================================
- * WebSocket hook for real-time AI streaming with token, citation, and audio handling.
+ * WebSocket hook for real-time AI streaming with token and citation handling.
+ * Note: Audio streaming removed in Option B cleanup.
  */
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useAudioStore } from "@/store/audioStore";
 
 // WebSocket message types
 interface TextTokenMessage {
@@ -21,13 +21,6 @@ interface CitationMarkerMessage {
     citation_id: string;
     node_id: string;
     text_position: number;
-}
-
-interface AudioChunkMessage {
-    type: "audio_chunk";
-    data: string; // Base64 encoded audio
-    chunk_index: number;
-    is_final: boolean;
 }
 
 interface StreamStartMessage {
@@ -50,7 +43,6 @@ interface ErrorMessage {
 type WSMessage =
     | TextTokenMessage
     | CitationMarkerMessage
-    | AudioChunkMessage
     | StreamStartMessage
     | StreamEndMessage
     | ErrorMessage;
@@ -85,7 +77,6 @@ interface UseCognitiveStreamReturn {
 
     // Sending messages
     sendMessage: (content: string, context?: string[]) => void;
-    requestPodcast: (sourceIds: string[]) => void;
 
     // State
     isStreaming: boolean;
@@ -115,8 +106,6 @@ export function useCognitiveStream(
     const [currentMessageId, setCurrentMessageId] = useState<string | null>(null);
     const [streamedContent, setStreamedContent] = useState("");
     const [error, setError] = useState<string | null>(null);
-
-    const { addToQueue } = useAudioStore();
 
     // Connect to WebSocket
     const connect = useCallback(() => {
@@ -192,12 +181,6 @@ export function useCognitiveStream(
     // Handle incoming messages
     const handleMessage = useCallback((event: MessageEvent) => {
         try {
-            // Handle binary audio data
-            if (event.data instanceof Blob) {
-                handleAudioBlob(event.data);
-                return;
-            }
-
             const message: WSMessage = JSON.parse(event.data);
 
             switch (message.type) {
@@ -212,11 +195,6 @@ export function useCognitiveStream(
                     // Dispatch custom event to highlight node in graph
                     dispatchHighlightNode(message.node_id);
                     onCitation?.(message.node_id, message.citation_id);
-                    break;
-
-                case "audio_chunk":
-                    // Decode base64 and add to audio queue
-                    handleAudioChunk(message);
                     break;
 
                 case "stream_start":
@@ -245,38 +223,6 @@ export function useCognitiveStream(
         }
     }, [onToken, onCitation, onStreamStart, onStreamEnd, onError]);
 
-    // Handle audio blob (binary WebSocket data)
-    const handleAudioBlob = useCallback(async (blob: Blob) => {
-        const arrayBuffer = await blob.arrayBuffer();
-        const url = URL.createObjectURL(blob);
-
-        addToQueue({
-            id: `audio-${Date.now()}`,
-            url,
-            title: "AI Speech",
-            speaker: "Assistant",
-        });
-    }, [addToQueue]);
-
-    // Handle audio chunk (base64 encoded)
-    const handleAudioChunk = useCallback((message: AudioChunkMessage) => {
-        const binaryString = atob(message.data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const blob = new Blob([bytes], { type: "audio/wav" });
-        const url = URL.createObjectURL(blob);
-
-        addToQueue({
-            id: `audio-chunk-${message.chunk_index}`,
-            url,
-            title: `Segment ${message.chunk_index + 1}`,
-            speaker: "Assistant",
-        });
-    }, [addToQueue]);
-
     // Send chat message
     const sendMessage = useCallback((content: string, context?: string[]) => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) {
@@ -296,23 +242,6 @@ export function useCognitiveStream(
         setIsStreaming(true);
     }, []);
 
-    // Request podcast generation
-    const requestPodcast = useCallback((sourceIds: string[]) => {
-        if (wsRef.current?.readyState !== WebSocket.OPEN) {
-            setError("Not connected to server");
-            return;
-        }
-
-        const payload = {
-            type: "generate_podcast",
-            source_ids: sourceIds,
-            timestamp: new Date().toISOString(),
-        };
-
-        wsRef.current.send(JSON.stringify(payload));
-        setIsStreaming(true);
-    }, []);
-
     // Auto-connect on mount
     useEffect(() => {
         if (autoConnect) {
@@ -329,7 +258,6 @@ export function useCognitiveStream(
         disconnect,
         connectionState,
         sendMessage,
-        requestPodcast,
         isStreaming,
         currentMessageId,
         streamedContent,

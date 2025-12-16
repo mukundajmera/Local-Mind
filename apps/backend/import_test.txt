@@ -1,0 +1,16 @@
+﻿python : Traceback (most recent call last):
+At line:1 char:1
++ python -c "from main import app; print('Backend imports OK')" 2>&1 |  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last) 
+   ::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<string>", line 1, in <module>
+    from main import app; print('Backend imports OK')
+    ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects Workspace\Local Notebooklm\apps\backend\main.py", line 7, 
+in <module>
+    from fastapi import FastAPI, HTTPException, UploadFile, File, Request, 
+BackgroundTasks
+ModuleNotFoundError: No module named 'fastapi'

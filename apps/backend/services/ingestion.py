@@ -1,32 +1,24 @@
 """
 Sovereign Cognitive Engine - Ingestion Pipeline
 ================================================
-Asynchronous document ingestion with chunking, embedding, and graph extraction.
+Fast document ingestion with chunking and embedding (Pure Vector, Option B).
 """
 
 import hashlib
 import logging
+from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
-from neo4j import AsyncGraphDatabase, AsyncDriver
-from neo4j.exceptions import Neo4jError
 from pymilvus import MilvusClient, MilvusException
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Third-party libraries
 from sentence_transformers import SentenceTransformer
-from langchain_ollama import ChatOllama
-from langchain_community.chat_models import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
 
 from config import Settings, get_settings
 from schemas import (
-    ExtractionResult,
-    GraphEntity,
-    GraphRelationship,
     IngestedDocument,
     TextChunk,
 )
@@ -35,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Stub Services (to be implemented with actual models)
+# Embedding Service
 # =============================================================================
 
 class EmbeddingService:
@@ -84,78 +76,6 @@ class EmbeddingService:
             lambda: self._get_model().encode(texts, convert_to_numpy=False)
         )
         return embeddings
-
-
-class LLMService:
-    """
-    LLM service for entity/relationship extraction using Ollama or OpenAI/LM Studio.
-    """
-    
-    def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434", provider: str = "ollama"):
-        self.model = model
-        self.base_url = base_url
-        self.provider = provider
-        self._llm = None
-        
-    def _get_llm(self):
-        if self._llm is None:
-            if self.provider == "lmstudio" or self.provider == "openai":
-                logger.info(f"Initializing ChatOpenAI for provided: {self.provider} at {self.base_url}")
-                self._llm = ChatOpenAI(
-                    model=self.model,
-                    base_url=self.base_url,
-                    api_key="not-needed",
-                    temperature=0,
-                )
-            else:
-                logger.info(f"Initializing ChatOllama for provider: {self.provider} at {self.base_url}")
-                self._llm = ChatOllama(
-                    model=self.model,
-                    base_url=self.base_url,
-                    temperature=0,
-                    format="json" # Important for structured output resilience
-                )
-        return self._llm
-    
-    async def extract_entities(self, chunk_text: str, chunk_id: str) -> ExtractionResult:
-        """
-        Extract entities and relationships from text chunk.
-        """
-        llm = self._get_llm()
-        
-        # We use a Pydantic parser to ensure valid JSON structure matches our schema
-        parser = PydanticOutputParser(pydantic_object=ExtractionResult)
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert knowledge graph extractor. Extract entities and relationships from the text. "
-                       "Return ONLY JSON matching the requested schema. "
-                       "\n{format_instructions}"),
-            ("user", "Text chunk ({chunk_id}):\n{text}")
-        ])
-        
-        chain = prompt | llm | parser
-        
-        try:
-            result = await chain.ainvoke({
-                "text": chunk_text,
-                "chunk_id": chunk_id,
-                "format_instructions": parser.get_format_instructions()
-            })
-            
-            # Post-process to ensure chunk_ids are set (LLM might miss this)
-            for entity in result.entities:
-                if not entity.chunk_ids:
-                    entity.chunk_ids = [chunk_id]
-            for rel in result.relationships:
-                if not rel.chunk_ids:
-                    rel.chunk_ids = [chunk_id]
-                    
-            return result
-            
-        except Exception as e:
-            logger.error(f"LLM extraction failed for chunk {chunk_id}: {e}")
-            # Return empty result on failure to allow pipeline to continue
-            return ExtractionResult(entities=[], relationships=[])
 
 
 # =============================================================================
@@ -361,12 +281,15 @@ class DocumentParser:
 
 
 # =============================================================================
-# Main Ingestion Pipeline
+# Main Ingestion Pipeline (Option B: Pure Vector)
 # =============================================================================
 
 class IngestionPipeline:
     """
-    Orchestrates document ingestion: parse → chunk → embed → extract → persist.
+    Fast document ingestion: parse → chunk → embed → persist to Milvus.
+    
+    This is the Option B "Pure Vector" pipeline - no graph extraction or Neo4j.
+    Uploads should now take seconds instead of minutes.
     
     Example:
         ```python
@@ -385,24 +308,12 @@ class IngestionPipeline:
             chunk_overlap=self.settings.chunk_overlap_tokens,
         )
         self.embedding_service = EmbeddingService(self.settings.embedding_model)
-        self.llm_service = LLMService(
-            model=self.settings.llm_model,
-            base_url=self.settings.llm_base_url or "",
-            provider=self.settings.llm_provider,
-        )
         
-        # Database clients (initialized in __aenter__)
-        self._neo4j_driver: Optional[AsyncDriver] = None
+        # Milvus client (initialized in __aenter__)
         self._milvus_client: Optional[MilvusClient] = None
     
     async def __aenter__(self):
         """Async context manager entry - initialize database connections."""
-        # Neo4j async driver
-        self._neo4j_driver = AsyncGraphDatabase.driver(
-            self.settings.neo4j_uri,
-            auth=(self.settings.neo4j_user, self.settings.neo4j_password),
-        )
-        
         # Milvus client (pymilvus MilvusClient is sync but thread-safe)
         self._milvus_client = MilvusClient(uri=self.settings.milvus_uri)
         
@@ -413,8 +324,6 @@ class IngestionPipeline:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit - cleanup connections."""
-        if self._neo4j_driver:
-            await self._neo4j_driver.close()
         if self._milvus_client:
             self._milvus_client.close()
     
@@ -446,10 +355,18 @@ class IngestionPipeline:
     
     async def ingest_document(self, file_path: Path) -> IngestedDocument:
         """
-        Full ingestion pipeline for a document.
+        Fast ingestion pipeline for a document (Option B: Pure Vector).
+        
+        Pipeline:
+        1. Parse document
+        2. Chunk text
+        3. Embed chunks
+        4. Persist to Milvus
+        
+        No LLM entity extraction = FAST uploads!
         
         Args:
-            file_path: Path to document file (PDF supported)
+            file_path: Path to document file (PDF, TXT, MD supported)
             
         Returns:
             IngestedDocument with metadata
@@ -459,7 +376,7 @@ class IngestionPipeline:
         """
         from exceptions import IngestionError
         
-        logger.info(f"Starting ingestion: {file_path}")
+        logger.info(f"Starting fast ingestion: {file_path}")
         
         # 1. Create document metadata
         doc = IngestedDocument(
@@ -518,35 +435,9 @@ class IngestionPipeline:
                 original_error=e
             )
         
-        # 5. Extract entities and relationships from each chunk
-        # IMPORTANT: Continue on individual chunk failures to avoid losing entire document
-        all_entities: list[GraphEntity] = []
-        all_relationships: list[GraphRelationship] = []
-        extraction_errors: list[str] = []
-        
-        for chunk in chunks_with_embeddings:
-            try:
-                extraction = await self.llm_service.extract_entities(
-                    chunk.text,
-                    str(chunk.chunk_id),
-                )
-                all_entities.extend(extraction.entities)
-                all_relationships.extend(extraction.relationships)
-            except Exception as e:
-                # Log error but continue processing remaining chunks
-                error_msg = f"Extraction failed for chunk {chunk.chunk_id}: {e}"
-                logger.warning(error_msg)
-                extraction_errors.append(error_msg)
-                continue
-        
-        if extraction_errors:
-            logger.warning(f"Entity extraction had {len(extraction_errors)} failures out of {len(chunks)} chunks")
-        
-        logger.info(f"Extracted {len(all_entities)} entities, {len(all_relationships)} relationships")
-        
-        # 6. Persist to vector store
+        # 5. Persist to Milvus vector store (ONLY - no Neo4j!)
         try:
-            await self._persist_to_milvus(chunks_with_embeddings)
+            await self._persist_to_milvus(chunks_with_embeddings, doc)
         except Exception as e:
             raise IngestionError(
                 message=f"Failed to persist to Milvus: {str(e)}",
@@ -556,19 +447,7 @@ class IngestionPipeline:
                 original_error=e
             )
         
-        # 7. Persist to graph store
-        try:
-            await self._persist_to_neo4j(doc, chunks_with_embeddings, all_entities, all_relationships)
-        except Exception as e:
-            raise IngestionError(
-                message=f"Failed to persist to Neo4j: {str(e)}",
-                doc_id=str(doc.doc_id),
-                filename=file_path.name,
-                stage="neo4j_persistence",
-                original_error=e
-            )
-        
-        logger.info(f"Ingestion complete: {doc.doc_id}")
+        logger.info(f"Fast ingestion complete: {doc.doc_id} ({len(chunks)} chunks)")
         return doc
     
     async def _embed_chunks(self, chunks: list[TextChunk]) -> list[TextChunk]:
@@ -593,9 +472,9 @@ class IngestionPipeline:
         return embedded_chunks
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
-    async def _persist_to_milvus(self, chunks: list[TextChunk]):
+    async def _persist_to_milvus(self, chunks: list[TextChunk], doc: IngestedDocument):
         """
-        Persist chunk embeddings to Milvus.
+        Persist chunk embeddings to Milvus with document metadata.
         
         Uses upsert to handle re-ingestion.
         """
@@ -605,6 +484,11 @@ class IngestionPipeline:
         try:
             data = [chunk.to_milvus_dict() for chunk in chunks]
             
+            # Add document metadata to each chunk for filtering
+            for item in data:
+                item["filename"] = doc.filename
+                item["upload_date"] = doc.upload_date.isoformat()
+            
             self._milvus_client.upsert(
                 collection_name=self.settings.milvus_collection,
                 data=data,
@@ -613,10 +497,7 @@ class IngestionPipeline:
             
         except MilvusException as e:
             logger.error(f"Milvus persistence failed: {e}")
-            # Extract clean message if available
             msg = e.message if hasattr(e, 'message') else str(e)
-            
-            # Get context from first chunk if available
             doc_id = str(chunks[0].doc_id) if chunks else "unknown"
             
             from exceptions import IngestionError
@@ -631,146 +512,85 @@ class IngestionPipeline:
             logger.error(f"Milvus persistence failed: {e}")
             raise
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
-    async def _persist_to_neo4j(
-        self,
-        doc: IngestedDocument,
-        chunks: list[TextChunk],
-        entities: list[GraphEntity],
-        relationships: list[GraphRelationship],
-    ):
+    async def get_all_sources(self) -> list[dict]:
         """
-        Persist document, chunks, entities, and relationships to Neo4j.
+        Get a list of all ingested documents from Milvus.
         
-        Uses MERGE to prevent duplicates when re-ingesting the same document.
-        Uses UNWIND for batch operations to minimize database round-trips.
-        
-        Graph Schema:
-            (Document)-[:HAS_CHUNK]->(Chunk)
-            (Chunk)-[:MENTIONS]->(Entity)
-            (Entity)-[relationship_type]->(Entity)
+        Returns:
+            List of dicts with document metadata.
+        """
+        try:
+            # Query Milvus for unique doc_ids
+            # We'll query a sample of vectors and extract unique doc_ids
+            results = self._milvus_client.query(
+                collection_name=self.settings.milvus_collection,
+                filter="",  # No filter = get all
+                output_fields=["doc_id", "filename"],
+                limit=10000,  # Get enough to cover typical usage
+            )
             
-        Performance: Uses UNWIND pattern to batch operations.
-        For 1000 chunks, this reduces from 1000+ queries to 4 queries.
+            # Aggregate by doc_id
+            sources_map = {}
+            for item in results:
+                doc_id = item.get("doc_id")
+                if doc_id and doc_id not in sources_map:
+                    sources_map[doc_id] = {
+                        "id": doc_id,
+                        "title": item.get("filename", "Unknown"),
+                        "filename": item.get("filename", "Unknown"),
+                        "uploaded_at": item.get("upload_date", ""),
+                        "status": "ready",
+                        "chunk_count": 0,
+                    }
+                if doc_id:
+                    sources_map[doc_id]["chunk_count"] += 1
+            
+            return list(sources_map.values())
+            
+        except MilvusException as e:
+            logger.error(f"Failed to get sources from Milvus: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting sources: {e}")
+            return []
+    
+    async def delete_document(self, doc_id: str) -> dict:
         """
-        if not self._neo4j_driver:
-            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
+        Delete a document and all its chunks from Milvus.
         
-        async with self._neo4j_driver.session() as session:
-            try:
-                # 1. Create Document node
-                await session.run(
-                    """
-                    MERGE (d:Document {id: $doc_id})
-                    SET d.filename = $filename,
-                        d.upload_date = datetime($upload_date),
-                        d.file_size_bytes = $file_size
-                    """,
-                    doc_id=str(doc.doc_id),
-                    filename=doc.filename,
-                    upload_date=doc.upload_date.isoformat(),
-                    file_size=doc.file_size_bytes,
-                )
-                
-                # 2. BATCH: Create all Chunk nodes and link to Document
-                # Using UNWIND for O(1) queries instead of O(n)
-                if chunks:
-                    chunk_data = [
-                        {
-                            "chunk_id": str(c.chunk_id),
-                            "text": c.text[:1000],  # Truncate for graph storage
-                            "position": c.position,
-                            "token_count": c.token_count,
-                        }
-                        for c in chunks
-                    ]
-                    await session.run(
-                        """
-                        MATCH (d:Document {id: $doc_id})
-                        UNWIND $chunks AS chunk
-                        MERGE (c:Chunk {id: chunk.chunk_id})
-                        SET c.text = chunk.text,
-                            c.position = chunk.position,
-                            c.token_count = chunk.token_count
-                        MERGE (d)-[:HAS_CHUNK]->(c)
-                        """,
-                        doc_id=str(doc.doc_id),
-                        chunks=chunk_data,
-                    )
-                
-                # 3. BATCH: Create all Entity nodes
-                # Uses MERGE with normalized name to deduplicate across documents
-                if entities:
-                    entity_data = [
-                        {
-                            "normalized_name": e.normalized_name,
-                            "name": e.name,
-                            "type": e.type,
-                            "description": e.description,
-                            "chunk_ids": e.chunk_ids,
-                        }
-                        for e in entities
-                    ]
-                    await session.run(
-                        """
-                        UNWIND $entities AS entity
-                        MERGE (e:Entity {normalized_name: entity.normalized_name})
-                        ON CREATE SET
-                            e.name = entity.name,
-                            e.type = entity.type,
-                            e.description = entity.description,
-                            e.chunk_ids = entity.chunk_ids
-                        ON MATCH SET
-                            e.chunk_ids = e.chunk_ids + entity.chunk_ids
-                        """,
-                        entities=entity_data,
-                    )
-                    
-                    # BATCH: Link entities to their source chunks
-                    # Flatten the entity-chunk relationships
-                    mention_links = [
-                        {"chunk_id": cid, "normalized_name": e.normalized_name}
-                        for e in entities
-                        for cid in e.chunk_ids
-                    ]
-                    if mention_links:
-                        await session.run(
-                            """
-                            UNWIND $links AS link
-                            MATCH (c:Chunk {id: link.chunk_id})
-                            MATCH (e:Entity {normalized_name: link.normalized_name})
-                            MERGE (c)-[:MENTIONS]->(e)
-                            """,
-                            links=mention_links,
-                        )
-                
-                # 4. BATCH: Create all Relationship edges between entities
-                if relationships:
-                    rel_data = [
-                        {
-                            "source_name": r.source.strip().lower(),
-                            "target_name": r.target.strip().lower(),
-                            "rel_type": r.type,
-                            "weight": r.weight,
-                            "chunk_ids": r.chunk_ids,
-                        }
-                        for r in relationships
-                    ]
-                    await session.run(
-                        """
-                        UNWIND $rels AS rel
-                        MATCH (source:Entity {normalized_name: rel.source_name})
-                        MATCH (target:Entity {normalized_name: rel.target_name})
-                        MERGE (source)-[r:RELATED_TO {type: rel.rel_type}]->(target)
-                        SET r.weight = rel.weight,
-                            r.chunk_ids = rel.chunk_ids
-                        """,
-                        rels=rel_data,
-                    )
-                
-                logger.debug(f"Persisted graph: {len(chunks)} chunks, {len(entities)} entities, {len(relationships)} relationships")
-                
-            except Neo4jError as e:
-                logger.error(f"Neo4j persistence failed: {e}")
-                raise
-
+        Args:
+            doc_id: Document ID to delete
+            
+        Returns:
+            Dict with deletion statistics
+        """
+        try:
+            # Delete all entities with matching doc_id
+            filter_expr = f'doc_id == "{doc_id}"'
+            
+            # First, count how many we're deleting
+            existing = self._milvus_client.query(
+                collection_name=self.settings.milvus_collection,
+                filter=filter_expr,
+                output_fields=["id"],
+                limit=10000,
+            )
+            
+            if not existing:
+                return {"found": False, "chunks_deleted": 0}
+            
+            # Delete by filter
+            self._milvus_client.delete(
+                collection_name=self.settings.milvus_collection,
+                filter=filter_expr,
+            )
+            
+            logger.info(f"Deleted {len(existing)} chunks for document {doc_id}")
+            return {"found": True, "chunks_deleted": len(existing)}
+            
+        except MilvusException as e:
+            logger.error(f"Failed to delete document {doc_id}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error deleting document: {e}")
+            raise

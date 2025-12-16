@@ -113,19 +113,14 @@ search_duration_seconds = Histogram(
 # Database Metrics
 # =============================================================================
 
-neo4j_connection_errors_total = Counter(
-    "neo4j_connection_errors_total",
-    "Total Neo4j connection errors"
-)
-
 milvus_connection_errors_total = Counter(
     "milvus_connection_errors_total",
     "Total Milvus connection errors"
 )
 
-neo4j_query_duration_seconds = Histogram(
-    "neo4j_query_duration_seconds",
-    "Neo4j query duration in seconds",
+milvus_operation_duration_seconds = Histogram(
+    "milvus_operation_duration_seconds",
+    "Milvus operation duration in seconds",
     labelnames=["operation"],
     buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0)
 )
@@ -138,11 +133,6 @@ milvus_operation_duration_seconds = Histogram(
 )
 
 # Gauges for current state
-neo4j_is_healthy = Gauge(
-    "neo4j_is_healthy",
-    "Neo4j health status (1=healthy, 0=unhealthy)"
-)
-
 milvus_is_healthy = Gauge(
     "milvus_is_healthy",
     "Milvus health status (1=healthy, 0=unhealthy)"

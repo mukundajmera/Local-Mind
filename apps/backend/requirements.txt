@@ -13,7 +13,6 @@ celery[redis]==5.4.0
 redis==5.2.0
 
 # Database Clients
-neo4j==5.25.0
 pymilvus==2.4.9
 
 # AI/ML

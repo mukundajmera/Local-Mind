@@ -8,8 +8,6 @@ import { useWorkspaceStore } from "@/store/workspaceStore";
 
 const NAV_ITEMS = [
     { href: "/", label: "Research Studio" },
-    { href: "/insights", label: "Insight Stream" },
-    { href: "/podcast", label: "Podcast Studio" },
     { href: "/notebook", label: "Notebook" },
 ] as const;
 
