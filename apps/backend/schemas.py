@@ -27,6 +27,7 @@ class IngestedDocument(BaseModel):
     mime_type: str = Field(default="application/pdf")
     page_count: Optional[int] = Field(default=None)
     notebook_id: Optional[UUID] = Field(default=None, description="Parent notebook")
+    project_id: Optional[UUID] = Field(default=None, description="Project this document belongs to")
 
 
 class TextChunk(BaseModel):
@@ -181,6 +182,10 @@ class ChatRequest(BaseModel):
     source_ids: Optional[List[str]] = Field(
         default=None, 
         description="Optional list of document IDs to filter search. If None, searches all documents."
+    )
+    project_id: Optional[UUID] = Field(
+        default=None,
+        description="Optional project ID to filter search. If provided, only searches documents in this project."
     )
 
 

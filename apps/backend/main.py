@@ -17,7 +17,9 @@ from services.search import HybridRetriever
 from services.llm_factory import LLMService
 from services.briefing_service import BriefingService
 from services.notes_service import NotesService
+from services.model_manager import ModelManager
 from logging_config import configure_logging, get_logger
+from routers import system_router, projects_router
 import structlog
 import schemas
 from exceptions import (
@@ -122,6 +124,10 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(MetricsMiddleware)
+
+# Register routers
+app.include_router(system_router, prefix="/api/v1/system", tags=["system"])
+app.include_router(projects_router, prefix="/api/v1/projects", tags=["projects"])
 
 
 # =============================================================================
@@ -323,6 +329,14 @@ async def startup_event():
         print("Please ensure Milvus is running and accessible.", file=sys.stderr)
         # Don't exit - allow startup to continue with degraded functionality
         # Health checks will report the issue
+    
+    # 4. Initialize ModelManager
+    try:
+        model_manager = ModelManager.get_instance()
+        logger.info("ModelManager initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize ModelManager", error=str(e), exc_info=True)
+        print(f"⚠️  ModelManager initialization failed: {e}", file=sys.stderr)
 
 
 @app.on_event("shutdown")
