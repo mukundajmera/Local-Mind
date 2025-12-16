@@ -62,8 +62,11 @@ class EmbeddingService:
         # Run CPU-bound model in executor
         embedding = await loop.run_in_executor(
             None,
-            lambda: self._get_model().encode(text, convert_to_numpy=False)
+            lambda: self._get_model().encode(text, convert_to_numpy=True)
         )
+        
+        if hasattr(embedding, "tolist"):
+            return embedding.tolist()
         return embedding
     
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -73,8 +76,11 @@ class EmbeddingService:
         
         embeddings = await loop.run_in_executor(
             None,
-            lambda: self._get_model().encode(texts, convert_to_numpy=False)
+            lambda: self._get_model().encode(texts, convert_to_numpy=True)
         )
+        
+        if hasattr(embeddings, "tolist"):
+            return embeddings.tolist()
         return embeddings
 
 
@@ -332,22 +338,38 @@ class IngestionPipeline:
         collection_name = self.settings.milvus_collection
         
         try:
-            # Check if collection exists
-            if self._milvus_client.has_collection(collection_name):
-                logger.info(f"Milvus collection '{collection_name}' exists")
-                return
-            
-            # Create collection with schema
             from pymilvus import DataType
-            
-            self._milvus_client.create_collection(
-                collection_name=collection_name,
-                dimension=self.settings.embedding_dimension,
-                metric_type="COSINE",
-                id_type=DataType.VARCHAR,
-                max_length=36,  # UUID length
-            )
-            logger.info(f"Created Milvus collection '{collection_name}'")
+
+            # Check if collection exists
+            if not self._milvus_client.has_collection(collection_name):
+                logger.info(f"Creating new collection '{collection_name}' with explicit schema")
+                
+                # Create schema
+                schema = MilvusClient.create_schema(
+                    auto_id=False,
+                    enable_dynamic_field=True,
+                )
+                schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=36, is_primary=True)
+                schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=self.settings.embedding_dimension)
+                schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=36)
+                schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=60000)
+                schema.add_field(field_name="filename", datatype=DataType.VARCHAR, max_length=512)
+                
+                # Prepare index parameters
+                index_params = self._milvus_client.prepare_index_params()
+                index_params.add_index(
+                    field_name="vector",
+                    metric_type="COSINE",
+                    index_type="IVF_FLAT",
+                    params={"nlist": 128}
+                )
+                
+                self._milvus_client.create_collection(
+                    collection_name=collection_name,
+                    schema=schema,
+                    index_params=index_params,
+                )
+                logger.info(f"Created Milvus collection '{collection_name}' with explicit schema")
             
         except MilvusException as e:
             logger.error(f"Milvus collection setup failed: {e}")
@@ -527,6 +549,7 @@ class IngestionPipeline:
                 filter="",  # No filter = get all
                 output_fields=["doc_id", "filename"],
                 limit=10000,  # Get enough to cover typical usage
+                consistency_level="Strong",
             )
             
             # Aggregate by doc_id

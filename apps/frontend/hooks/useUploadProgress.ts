@@ -47,32 +47,37 @@ export function useUploadProgress(taskId: string | null) {
         }
     }, [taskId]);
 
+    // Reset/Init state when taskId changes
     useEffect(() => {
-        if (!taskId) {
+        if (taskId) {
+            setStatus("uploading");
+            setProgress(10);
+            setError(null);
+            setDocId(null);
+        } else {
             setStatus("idle");
             setProgress(0);
             setError(null);
             setDocId(null);
+        }
+    }, [taskId]);
+
+    // Polling logic
+    useEffect(() => {
+        if (!taskId || status === "completed" || status === "failed" || status === "idle") {
             return;
         }
 
-        setStatus("uploading");
-        setProgress(10);
-
-        // Poll every 500ms until completed or failed
+        // Poll every 500ms
         const interval = setInterval(() => {
-            if (status === "completed" || status === "failed") {
-                clearInterval(interval);
-                return;
-            }
             pollStatus();
         }, 500);
 
-        // Initial poll
+        // Initial poll immediately
         pollStatus();
 
         return () => clearInterval(interval);
-    }, [taskId, pollStatus, status]);
+    }, [taskId, status, pollStatus]);
 
     const reset = useCallback(() => {
         setStatus("idle");

@@ -13,4 +13,4 @@ pytest-mock==3.14.0
 httpx==0.28.0
 
 # Include main requirements
--r apps/backend/requirements.txt
+-r ../apps/backend/requirements.txt

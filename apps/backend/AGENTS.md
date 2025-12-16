@@ -8,25 +8,20 @@
 - **Contracts:** Public API schemas defined in `schemas.py` and `services/`. Coordinate breaking changes with frontend owners and bump backend version in `pyproject.toml`.
 
 ## Local Environment
-- Python 3.11 required. Use the module-local virtualenv scaffold under `venv/` or create a fresh one.
-- Install dependencies:
-  ```bash
-  python3 -m venv venv
-  source venv/bin/activate
-  pip install -r requirements.txt
-  pip install -r requirements_device_manager.txt  # optional GPU extras
-  ```
+- Python 3.11 required. Create or refresh the repo-root virtualenv with `./setup_env.sh` from the repository root and activate it using `source ./activate.sh` (or `source venv/bin/activate`).
+- After activation, change into `apps/backend` to run commands. Optional GPU extras live in `requirements_device_manager.txt`; install them from the root environment as needed.
 - Export environment variables via repo root `.env` or module-specific overrides before running services or tests.
 
 ## Development Workflow
-- **Run API locally:**
+- **macOS launcher:** From the repo root run `./start.sh backend` to spin up the API using the unified environment (logs written to `logs/backend.log`).
+- **Run API manually:**
   ```bash
-  source venv/bin/activate
+  source ../../venv/bin/activate
   uvicorn main:app --reload --port 8000
   ```
 - **Celery worker:**
   ```bash
-  source venv/bin/activate
+  source ../../venv/bin/activate
   celery -A services.ingestion worker --loglevel=info
   ```
 - **Structured Logging:** Uses `structlog` configured in `logging_config.py`. Avoid `print` statements; leverage provided loggers.
@@ -35,12 +30,12 @@
 ## Testing & Quality
 - Unit tests:
   ```bash
-  source venv/bin/activate
+  source ../../venv/bin/activate
   pytest tests/unit -m "unit"
   ```
 - Integration tests (requires drivers or mock services depending on markers):
   ```bash
-  source venv/bin/activate
+  source ../../venv/bin/activate
   pytest tests/integration -m "integration"
   ```
 - Full backend suite from repo root: `./run_tests.sh --unit` or `--all` for e2e. Ensure backend-specific failures are resolved before requesting review.

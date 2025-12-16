@@ -132,7 +132,7 @@ class HybridRetriever:
             search_results = self._milvus_client.search(
                 collection_name=self.settings.milvus_collection,
                 data=[query_embedding],
-                anns_field="embedding",
+                anns_field="vector",
                 limit=limit,
                 output_fields=["id", "doc_id", "text"],
                 filter=filter_expr,

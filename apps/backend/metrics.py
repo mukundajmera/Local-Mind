@@ -125,12 +125,7 @@ milvus_operation_duration_seconds = Histogram(
     buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0)
 )
 
-milvus_operation_duration_seconds = Histogram(
-    "milvus_operation_duration_seconds",
-    "Milvus operation duration in seconds",
-    labelnames=["operation"],
-    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0)
-)
+
 
 # Gauges for current state
 milvus_is_healthy = Gauge(

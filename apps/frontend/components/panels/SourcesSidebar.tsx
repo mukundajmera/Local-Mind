@@ -32,6 +32,9 @@ export function SourcesSidebar() {
     // Use the upload progress hook
     const { status: uploadStatus, progress, error: uploadProgressError, isComplete, isFailed, reset: resetUpload } = useUploadProgress(uploadTaskId);
 
+    useEffect(() => {
+    }, [uploadTaskId, uploadStatus, progress, isComplete]);
+
     // Fetch sources from API
     const fetchSources = useCallback(async () => {
         setLoadingSources(true);
@@ -40,6 +43,8 @@ export function SourcesSidebar() {
             if (response.ok) {
                 const data = await response.json();
                 setSources(data.sources || []);
+            } else {
+                console.error("SourcesSidebar: Fetch failed status:", response.status);
             }
         } catch (error) {
             console.error("Failed to fetch sources:", error);
@@ -56,12 +61,24 @@ export function SourcesSidebar() {
     // When upload completes, refresh sources and reset
     useEffect(() => {
         if (isComplete) {
+            // Immediate fetch
             fetchSources();
+
+            // Retry fetch after delays to handle eventual consistency of vector store
+            const t1 = setTimeout(() => fetchSources(), 500);
+            const t2 = setTimeout(() => fetchSources(), 1500);
+
             // Reset after a brief delay to show 100% completion
-            setTimeout(() => {
+            const t3 = setTimeout(() => {
                 setUploadTaskId(null);
                 resetUpload();
-            }, 1000);
+            }, 2000);
+
+            return () => {
+                clearTimeout(t1);
+                clearTimeout(t2);
+                clearTimeout(t3);
+            };
         }
     }, [isComplete, fetchSources, resetUpload]);
 

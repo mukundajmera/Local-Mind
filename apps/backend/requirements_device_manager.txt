@@ -1,16 +1,3 @@
-"""
-Intelligent Compute Resource Manager - Dependencies
-===================================================
-
-Required:
-- None (pure Python fallback available)
-
-Recommended:
-- psutil: For CPU information
-- torch: For GPU detection (CUDA, ROCm, Metal/MPS)
-- pynvml: For NVIDIA GPU utilization (optional)
-- pyopencl: For OpenCL devices (optional)
-"""
 
 # Core (recommended)
 psutil>=5.9.0

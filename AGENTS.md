@@ -18,9 +18,10 @@
 - Coverage threshold: Backend branch coverage ≥60% (see `pyproject.toml`). Investigate coverage regressions before merge.
 - Frontend changes must run `npm run lint`; build-impacting changes should run `npm run build`.
 - Shell automation must retain `set -e` and pass `shellcheck` when feasible.
+- Python-driven validation must execute inside the unified `./venv` to ensure consistent dependency resolution.
 
 ## Environment Baseline
-- **Python:** 3.11 (system or virtualenv). Dependencies managed per module requirements files.
+- **Python:** 3.11 (repo-root virtualenv). Create or refresh the unified `./venv` via `./setup_env.sh`, then activate it with `source ./activate.sh` (or `source venv/bin/activate`) before running services or tests.
 - **Node.js:** v20 LTS with npm. Lockfile maintained in `apps/frontend/package-lock.json`.
 - **Containers:** Prefer `nerdctl` (`sovereign-ai` namespace). Fallback to Podman or Docker when scripted.
 - **GPU Tooling:** NVIDIA Container Toolkit on Linux/WSL2. macOS uses LM Studio at `127.0.0.1:1234` for GPU assist. Update README/SETUP plus this handbook when requirements change.
@@ -34,12 +35,18 @@
    chmod 600 .env
    ```
 2. Provision runtime (see `SETUP.md` for OS-specific steps).
-3. Start full stack:
+3. Provision Python environment:
+   ```bash
+   ./setup_env.sh
+   source ./activate.sh
+   ```
+4. Start full stack:
    ```bash
    bash scripts/init.sh
    ```
    - Script auto-detects container runtime, ensures `data/` volumes, and waits for Neo4j, Milvus, Redis, and backend health.
-4. Tear down with `nerdctl --namespace sovereign-ai compose -f infrastructure/nerdctl/compose.yaml down` when finished.
+   - macOS launcher `./start.sh` uses the same unified environment when starting backend/frontend locally.
+5. Tear down with `nerdctl --namespace sovereign-ai compose -f infrastructure/nerdctl/compose.yaml down` when finished.
 
 ## Context Switch Table
 | Module | Description | Local Handbook |
@@ -51,7 +58,7 @@
 | Automation Scripts | Bootstrap, watchdog, and setup automation. | `scripts/AGENTS.md` |
 | Test Suites | Pytest orchestration, markers, stress tooling. | `tests/AGENTS.md` |
 
-Always consult the relevant module file before executing commands within that directory. Modules may define additional linting, build, or deployment workflow requirements.
+Always consult the relevant module file before executing commands within that directory. Modules may define additional linting, build, or deployment workflow requirements. Reference `QUICKSTART.md` and `ENV_CONSOLIDATION.md` for launchers and environment expectations shared across modules.
 
 ## Configuration & Secrets Governance
 - Keep `.env.example` synchronized with code changes, compose files, and documentation (`README.md`, `SETUP.md`).

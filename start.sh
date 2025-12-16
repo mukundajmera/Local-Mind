@@ -89,14 +89,15 @@ start_backend() {
         sleep 1
     fi
     
-    cd "$BACKEND_DIR"
-    
-    if [ ! -d "venv" ]; then
-        log_error "Python venv not found! Run: python3 -m venv venv && pip install -r requirements.txt"
+    # Use root-level venv instead of backend-specific venv
+    if [ ! -d "$PROJECT_ROOT/venv" ]; then
+        log_error "Python venv not found! Run: ./setup_env.sh"
         exit 1
     fi
     
-    source venv/bin/activate
+    source "$PROJECT_ROOT/venv/bin/activate"
+    
+    cd "$BACKEND_DIR"
     
     # Start in background, log to file
     nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload \
