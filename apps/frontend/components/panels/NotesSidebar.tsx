@@ -15,7 +15,7 @@ interface Note {
 }
 
 export function NotesSidebar() {
-    const { toggleNotesPanel } = useWorkspaceStore();
+    const { toggleNotesPanel, pinnedMessages, unpinMessage } = useWorkspaceStore();
     const [notes, setNotes] = useState<Note[]>([]);
     const [newNote, setNewNote] = useState("");
 
@@ -87,53 +87,98 @@ export function NotesSidebar() {
             </div>
 
             {/* Notes List */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {notes.length === 0 ? (
-                    <div className="text-center py-8 theme-text-faint text-sm">
-                        No notes yet. Add one above!
-                    </div>
-                ) : (
-                    notes.map((note) => (
-                        <div
-                            key={note.id}
-                            className={`group p-3 rounded-lg border transition-colors ${note.isPinned
-                                ? "bg-cyber-blue/10 border-cyber-blue/30"
-                                : "bg-glass-100 border-transparent hover:border-glass"
-                                }`}
-                        >
-                            <p className="text-sm theme-text-primary whitespace-pre-wrap">
-                                {note.content}
-                            </p>
-                            <div className="flex items-center justify-between mt-2">
-                                <span className="text-xs theme-text-faint">
-                                    {note.createdAt.toLocaleTimeString(undefined, {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                    })}
-                                </span>
-                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Pinned Chat Messages Section */}
+                {pinnedMessages.length > 0 && (
+                    <div className="space-y-2">
+                        <div className="text-xs theme-text-muted font-semibold uppercase tracking-wide px-1">
+                            📌 Pinned from Chat
+                        </div>
+                        {pinnedMessages.map((msg) => (
+                            <div
+                                key={msg.id}
+                                className="group p-3 rounded-lg bg-cyber-blue/10 border border-cyber-blue/30"
+                                data-testid={`pinned-message-${msg.id}`}
+                            >
+                                <p className="text-sm theme-text-primary whitespace-pre-wrap">
+                                    {msg.content}
+                                </p>
+                                <div className="flex items-center justify-between mt-2">
+                                    <span className="text-xs theme-text-faint">
+                                        {msg.pinnedAt.toLocaleTimeString(undefined, {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                        })}
+                                    </span>
                                     <button
-                                        onClick={() => handleTogglePin(note.id)}
-                                        className={`p-1 rounded transition-colors ${note.isPinned
-                                            ? "text-cyber-blue"
-                                            : "theme-text-faint hover:text-white"
-                                            }`}
-                                        title={note.isPinned ? "Unpin" : "Pin"}
-                                    >
-                                        📌
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeleteNote(note.id)}
-                                        className="p-1 rounded theme-text-faint hover:text-red-400 transition-colors"
-                                        title="Delete"
+                                        onClick={() => unpinMessage(msg.id)}
+                                        className="opacity-0 group-hover:opacity-100 p-1 rounded theme-text-faint hover:text-red-400 transition-all"
+                                        title="Unpin"
+                                        data-testid={`unpin-btn-${msg.id}`}
                                     >
                                         🗑️
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        ))}
+                        <div className="border-t border-glass my-3" />
+                    </div>
                 )}
+
+                {/* Regular Notes Section */}
+                <div className="space-y-2">
+                    {notes.length > 0 && pinnedMessages.length > 0 && (
+                        <div className="text-xs theme-text-muted font-semibold uppercase tracking-wide px-1">
+                            📝 Notes
+                        </div>
+                    )}
+                    {notes.length === 0 && pinnedMessages.length === 0 ? (
+                        <div className="text-center py-8 theme-text-faint text-sm">
+                            No notes yet. Add one above or pin messages from chat!
+                        </div>
+                    ) : (
+                        notes.map((note) => (
+                            <div
+                                key={note.id}
+                                className={`group p-3 rounded-lg border transition-colors ${note.isPinned
+                                    ? "bg-cyber-blue/10 border-cyber-blue/30"
+                                    : "bg-glass-100 border-transparent hover:border-glass"
+                                    }`}
+                            >
+                                <p className="text-sm theme-text-primary whitespace-pre-wrap">
+                                    {note.content}
+                                </p>
+                                <div className="flex items-center justify-between mt-2">
+                                    <span className="text-xs theme-text-faint">
+                                        {note.createdAt.toLocaleTimeString(undefined, {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                        })}
+                                    </span>
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => handleTogglePin(note.id)}
+                                            className={`p-1 rounded transition-colors ${note.isPinned
+                                                ? "text-cyber-blue"
+                                                : "theme-text-faint hover:text-white"
+                                                }`}
+                                            title={note.isPinned ? "Unpin" : "Pin"}
+                                        >
+                                            📌
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteNote(note.id)}
+                                            className="p-1 rounded theme-text-faint hover:text-red-400 transition-colors"
+                                            title="Delete"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
         </div>
     );

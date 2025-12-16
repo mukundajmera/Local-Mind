@@ -451,9 +451,15 @@ async def _process_upload_background(task_id: str, file_path: Path, filename: st
             "filename": doc.filename,
         })
         
-        # Schedule briefing generation
-        # Note: We can't use background_tasks here, so we'll just log
-        logger.info(f"Upload completed for {task_id}, briefing should be generated")
+        # Trigger briefing generation in background
+        # Create a new task to generate briefing asynchronously
+        import asyncio
+        try:
+            asyncio.create_task(_generate_briefing_background(str(doc.doc_id), file_path))
+            logger.info(f"Briefing generation triggered for doc_id={doc.doc_id}")
+        except Exception as briefing_error:
+            # Don't fail the upload if briefing generation fails to start
+            logger.warning(f"Failed to trigger briefing generation: {briefing_error}")
         
     except IngestionError as e:
         stage = e.context.get("stage", "unknown")
