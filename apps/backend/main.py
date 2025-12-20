@@ -19,7 +19,7 @@ from services.briefing_service import BriefingService
 from services.notes_service import NotesService
 from services.model_manager import ModelManager
 from logging_config import configure_logging, get_logger
-from routers import system_router, projects_router, ingestion_router
+from routers import system_router, projects_router, ingestion_router, notes_router
 import structlog
 import schemas
 from exceptions import (
@@ -129,6 +129,7 @@ app.add_middleware(MetricsMiddleware)
 app.include_router(system_router, prefix="/api/v1/system", tags=["system"])
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["projects"])
 app.include_router(ingestion_router, prefix="/api/v1", tags=["ingestion"])
+app.include_router(notes_router, prefix="/api/v1/notes", tags=["notes"])
 
 
 # =============================================================================
@@ -556,97 +557,13 @@ async def chat(request: schemas.ChatRequest):
 
 
 # =============================================================================
-# Notes API Endpoints
+# Notes API Endpoints - DEPRECATED: Now handled by notes_router
 # =============================================================================
-
-@app.post("/api/v1/notes", response_model=schemas.SavedNote)
-async def create_note(request: schemas.CreateNoteRequest):
-    """
-    Create a new note.
-    
-    Notes can optionally reference a source chunk for citation.
-    """
-    try:
-        async with NotesService() as notes_service:
-            note = await notes_service.create_note(request)
-        
-        logger.info(f"Note created: {note.note_id}")
-        return note
-        
-    except Exception as e:
-        logger.error(f"Failed to create note: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create note: {str(e)}"
-        )
-
-
-@app.get("/api/v1/notes", response_model=List[schemas.SavedNote])
-async def get_notes():
-    """
-    Retrieve all notes, ordered by creation date (newest first).
-    
-    Returns an empty list if no notes exist or on database errors.
-    """
-    try:
-        async with NotesService() as notes_service:
-            notes = await notes_service.get_all_notes()
-        
-        logger.debug(f"Retrieved {len(notes)} notes")
-        return notes
-        
-    except Exception as e:
-        logger.error(f"Failed to retrieve notes: {e}", exc_info=True)
-        # Return empty list for graceful degradation
-        return []
-
-
-@app.get("/api/v1/notes/{note_id}", response_model=schemas.SavedNote)
-async def get_note(note_id: str):
-    """
-    Retrieve a specific note by ID.
-    """
-    try:
-        async with NotesService() as notes_service:
-            note = await notes_service.get_note_by_id(note_id)
-        
-        if not note:
-            raise HTTPException(status_code=404, detail=f"Note {note_id} not found")
-        
-        return note
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to retrieve note {note_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve note: {str(e)}"
-        )
-
-
-@app.delete("/api/v1/notes/{note_id}")
-async def delete_note(note_id: str):
-    """
-    Delete a note by ID.
-    """
-    try:
-        async with NotesService() as notes_service:
-            deleted = await notes_service.delete_note(note_id)
-        
-        if not deleted:
-            raise HTTPException(status_code=404, detail=f"Note {note_id} not found")
-        
-        return {"status": "success", "note_id": note_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete note {note_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete note: {str(e)}"
-        )
-
-
+# The notes endpoints have been moved to routers/notes.py with enhanced
+# functionality including:
+# - Project association
+# - Search by content/tags
+# - Pin/unpin capability
+# - Update notes (PATCH)
+# See /api/v1/notes/* endpoints registered via notes_router
 

@@ -214,24 +214,50 @@ class BriefingResponse(BaseModel):
 # =============================================================================
 
 class SavedNote(BaseModel):
-    """User-created note with optional source citation."""
+    """User-created note with optional source citation and project association."""
     
     note_id: UUID = Field(default_factory=uuid4, description="Unique note identifier")
+    project_id: Optional[UUID] = Field(default=None, description="Associated project")
     content: str = Field(..., min_length=1, description="Note content")
+    title: Optional[str] = Field(default=None, max_length=200, description="Optional title")
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
     source_citation_id: Optional[str] = Field(
         default=None, 
         description="Optional reference to a chunk or document ID"
     )
+    source_filename: Optional[str] = Field(default=None, description="Source document name")
+    is_pinned: bool = Field(default=False, description="Whether note is pinned")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = Field(default=None, description="Last update timestamp")
 
 
 class CreateNoteRequest(BaseModel):
     """Request schema for creating a new note."""
     
     content: str = Field(..., min_length=1, description="Note content")
+    title: Optional[str] = Field(default=None, max_length=200, description="Optional title")
     tags: Optional[List[str]] = Field(default=None, description="Tags for categorization")
     source_citation_id: Optional[str] = Field(
         default=None,
         description="Optional reference to a chunk or document ID"
     )
+    source_filename: Optional[str] = Field(default=None, description="Source document name")
+    project_id: Optional[UUID] = Field(default=None, description="Associated project")
+
+
+class UpdateNoteRequest(BaseModel):
+    """Request schema for updating an existing note."""
+    
+    content: Optional[str] = Field(default=None, min_length=1, description="Note content")
+    title: Optional[str] = Field(default=None, max_length=200, description="Optional title")
+    tags: Optional[List[str]] = Field(default=None, description="Tags for categorization")
+    is_pinned: Optional[bool] = Field(default=None, description="Pin status")
+
+
+class NotesListResponse(BaseModel):
+    """Response schema for notes list endpoint."""
+    
+    notes: List[SavedNote]
+    total: int
+    has_more: bool = False
+
