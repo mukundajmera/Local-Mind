@@ -27,8 +27,7 @@ networks:
 # PERSISTENT VOLUMES
 # =========================
 volumes:
-  neo4j-data:
-    driver: local
+
   milvus-data:
     driver: local
   redis-data:
@@ -62,35 +61,7 @@ services:
       retries: 10
       start_period: 5s
 
-  # -------------------------
-  # Neo4j (Knowledge Graph)
-  # Pinned: neo4j:5.26.0-community
-  # -------------------------
-  cognitive-brain:
-    image: neo4j:5.26.0-community
-    container_name: sce-cognitive-brain
-    restart: unless-stopped
-    ports:
-      - "7474:7474"  # Browser
-      - "7687:7687"  # Bolt
-    environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_dbms_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-512m}
-      NEO4J_dbms_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
-      NEO4J_dbms_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
-    volumes:
-      - neo4j-data:/data
-      - ../../data/neo4j/logs:/logs
-      - ../../data/neo4j/import:/import
-    networks:
-      - sovereign-net
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1" ]
-      interval: 10s
-      timeout: 10s
-      retries: 20
-      start_period: 120s
+
 
   # -------------------------
   # etcd (Milvus metadata)

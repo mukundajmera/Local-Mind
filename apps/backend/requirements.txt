@@ -14,7 +14,7 @@ redis==5.2.0
 
 # Database Clients
 pymilvus==2.4.9
-neo4j==5.14.1
+
 
 # AI/ML
 langchain==0.3.7
@@ -26,6 +26,7 @@ langchain-ollama==0.2.0
 unstructured[pdf]==0.16.5
 tiktoken==0.8.0
 aiofiles==24.1.0
+aiosqlite==0.20.0
 openai
 
 # Logging & Observability

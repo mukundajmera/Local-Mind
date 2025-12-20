@@ -90,7 +90,7 @@ check_docker() {
 # ==============================================================================
 
 start_infrastructure() {
-    log_info "Starting Infrastructure (Neo4j, Milvus, Redis)..."
+    log_info "Starting Infrastructure (Milvus, Redis)..."
     check_docker
     
     # Check if .env exists for compose
@@ -257,7 +257,7 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  all            Start EVERYTHING (Infrastructure + Backend + Frontend) [Default]"
-    echo "  infrastructure Start only Docker containers (Neo4j, Milvus, Redis)"
+    echo "  infrastructure Start only Docker containers (Milvus, Redis)"
     echo "  backend        Start only the backend"
     echo "  frontend       Start only the frontend"
     echo "  stop           Stop ALL services"

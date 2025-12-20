@@ -44,7 +44,7 @@ class CircuitBreaker:
     
     Example:
         ```python
-        breaker = CircuitBreaker(name="neo4j", failure_threshold=5)
+        breaker = CircuitBreaker(name="database", failure_threshold=5)
         
         try:
             result = await breaker.call(async_db_operation)

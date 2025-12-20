@@ -1,70 +1,63 @@
 """
 Sovereign Cognitive Engine - Notes Service
 ==========================================
-User notes management with Neo4j persistence.
+User notes management with SQLite persistence (Replacing Neo4j).
 """
 
 import logging
+import sqlite3
+import aiosqlite
 from typing import Optional, List
 from uuid import uuid4
-
-from neo4j import AsyncGraphDatabase, AsyncDriver
-from neo4j.exceptions import Neo4jError
+from datetime import datetime
+import os
 
 from config import Settings, get_settings
 from schemas import SavedNote, CreateNoteRequest
 
 logger = logging.getLogger(__name__)
 
+DB_PATH = "data/notes.db"
 
 class NotesService:
     """
-    Service for managing user-created notes.
-    
-    Notes can optionally be linked to source chunks for citation.
-    
-    Example:
-        ```python
-        async with NotesService() as service:
-            note = await service.create_note("My insight", tags=["research"])
-        ```
+    Service for managing user-created notes using SQLite.
     """
     
     def __init__(self, settings: Optional[Settings] = None):
         """Initialize notes service with configuration."""
         self.settings = settings or get_settings()
-        self._neo4j_driver: Optional[AsyncDriver] = None
+        self._db_path = DB_PATH
+        # Ensure data directory exists
+        os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
     
+    async def _init_db(self):
+        """Initialize SQLite database table."""
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS notes (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    tags TEXT,
+                    source_citation_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            await db.commit()
+
     async def __aenter__(self):
         """Async context manager entry."""
-        self._neo4j_driver = AsyncGraphDatabase.driver(
-            self.settings.neo4j_uri,
-            auth=(self.settings.neo4j_user, self.settings.neo4j_password),
-        )
+        await self._init_db()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        if self._neo4j_driver:
-            await self._neo4j_driver.close()
+        pass
     
     async def create_note(self, request: CreateNoteRequest) -> SavedNote:
         """
-        Create a new note and persist to Neo4j.
-        
-        Args:
-            request: CreateNoteRequest with note details
-            
-        Returns:
-            SavedNote with generated ID and timestamp
-            
-        Raises:
-            Neo4jError: If database operation fails
+        Create a new note and persist to SQLite.
         """
-        if not self._neo4j_driver:
-            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
-        
-        # Create note object
         note = SavedNote(
             note_id=uuid4(),
             content=request.content,
@@ -74,160 +67,78 @@ class NotesService:
         
         logger.info(f"Creating note {note.note_id}")
         
-        async with self._neo4j_driver.session() as session:
-            # Create Note node
-            await session.run(
-                """
-                CREATE (n:Note {
-                    id: $note_id,
-                    content: $content,
-                    tags: $tags,
-                    source_citation_id: $source_citation_id,
-                    created_at: datetime($created_at)
-                })
-                """,
-                note_id=str(note.note_id),
-                content=note.content,
-                tags=note.tags,
-                source_citation_id=note.source_citation_id,
-                created_at=note.created_at.isoformat(),
-            )
-            
-            # If source citation exists, create relationship
-            if note.source_citation_id:
-                await session.run(
-                    """
-                    MATCH (n:Note {id: $note_id})
-                    MATCH (c:Chunk {id: $chunk_id})
-                    MERGE (n)-[:CITES]->(c)
-                    """,
-                    note_id=str(note.note_id),
-                    chunk_id=note.source_citation_id,
-                )
-            
-            logger.debug(f"Note {note.note_id} created successfully")
+        tags_str = ",".join(note.tags) if note.tags else ""
         
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO notes (id, content, tags, source_citation_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    str(note.note_id),
+                    note.content,
+                    tags_str,
+                    note.source_citation_id,
+                    note.created_at.isoformat()
+                )
+            )
+            await db.commit()
+            
+        logger.debug(f"Note {note.note_id} created successfully")
         return note
     
     async def get_all_notes(self) -> List[SavedNote]:
         """
         Retrieve all notes ordered by creation date (newest first).
-        
-        Returns:
-            List of SavedNote objects
         """
-        if not self._neo4j_driver:
-            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
-        
-        async with self._neo4j_driver.session() as session:
-            result = await session.run(
-                """
-                MATCH (n:Note)
-                RETURN n.id as note_id,
-                       n.content as content,
-                       n.tags as tags,
-                       n.source_citation_id as source_citation_id,
-                       n.created_at as created_at
-                ORDER BY n.created_at DESC
-                """
-            )
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM notes ORDER BY created_at DESC")
+            rows = await cursor.fetchall()
             
             notes = []
-            async for record in result:
-                from datetime import datetime
-                
-                # Handle missing created_at with warning
-                created_at = record["created_at"]
-                if not created_at:
-                    logger.warning(f"Note {record['note_id']} missing created_at timestamp")
-                    created_at_dt = datetime.utcnow()
-                else:
-                    created_at_dt = datetime.fromisoformat(created_at)
-                
+            for row in rows:
+                tags = row['tags'].split(',') if row['tags'] else []
                 notes.append(SavedNote(
-                    note_id=record["note_id"],
-                    content=record["content"],
-                    tags=record["tags"] or [],
-                    source_citation_id=record["source_citation_id"],
-                    created_at=created_at_dt,
+                    note_id=row['id'],
+                    content=row['content'],
+                    tags=tags,
+                    source_citation_id=row['source_citation_id'],
+                    created_at=datetime.fromisoformat(row['created_at'])
                 ))
             
-            logger.debug(f"Retrieved {len(notes)} notes")
             return notes
-    
+
     async def get_note_by_id(self, note_id: str) -> Optional[SavedNote]:
         """
         Retrieve a specific note by ID.
-        
-        Args:
-            note_id: Note UUID as string
-            
-        Returns:
-            SavedNote if found, None otherwise
         """
-        if not self._neo4j_driver:
-            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
-        
-        async with self._neo4j_driver.session() as session:
-            result = await session.run(
-                """
-                MATCH (n:Note {id: $note_id})
-                RETURN n.id as note_id,
-                       n.content as content,
-                       n.tags as tags,
-                       n.source_citation_id as source_citation_id,
-                       n.created_at as created_at
-                """,
-                note_id=note_id,
-            )
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
+            row = await cursor.fetchone()
             
-            record = await result.single()
-            if not record:
+            if not row:
                 return None
-            
-            from datetime import datetime
-            
-            # Handle missing created_at with warning
-            created_at = record["created_at"]
-            if not created_at:
-                logger.warning(f"Note {note_id} missing created_at timestamp")
-                created_at_dt = datetime.utcnow()
-            else:
-                created_at_dt = datetime.fromisoformat(created_at)
-            
+                
+            tags = row['tags'].split(',') if row['tags'] else []
             return SavedNote(
-                note_id=record["note_id"],
-                content=record["content"],
-                tags=record["tags"] or [],
-                source_citation_id=record["source_citation_id"],
-                created_at=created_at_dt,
+                note_id=row['id'],
+                content=row['content'],
+                tags=tags,
+                source_citation_id=row['source_citation_id'],
+                created_at=datetime.fromisoformat(row['created_at'])
             )
-    
+
     async def delete_note(self, note_id: str) -> bool:
         """
         Delete a note by ID.
-        
-        Args:
-            note_id: Note UUID as string
-            
-        Returns:
-            True if note was deleted, False if not found
         """
-        if not self._neo4j_driver:
-            raise RuntimeError("Neo4j driver not initialized. Use async context manager.")
-        
-        async with self._neo4j_driver.session() as session:
-            result = await session.run(
-                """
-                MATCH (n:Note {id: $note_id})
-                DETACH DELETE n
-                RETURN count(n) as deleted_count
-                """,
-                note_id=note_id,
-            )
-            
-            record = await result.single()
-            deleted = record["deleted_count"] > 0 if record else False
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            await db.commit()
+            deleted = cursor.rowcount > 0
             
             if deleted:
                 logger.info(f"Note {note_id} deleted")
