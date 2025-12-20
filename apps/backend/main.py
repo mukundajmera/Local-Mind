@@ -19,7 +19,7 @@ from services.briefing_service import BriefingService
 from services.notes_service import NotesService
 from services.model_manager import ModelManager
 from logging_config import configure_logging, get_logger
-from routers import system_router, projects_router
+from routers import system_router, projects_router, ingestion_router
 import structlog
 import schemas
 from exceptions import (
@@ -128,6 +128,7 @@ app.add_middleware(MetricsMiddleware)
 # Register routers
 app.include_router(system_router, prefix="/api/v1/system", tags=["system"])
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["projects"])
+app.include_router(ingestion_router, prefix="/api/v1", tags=["ingestion"])
 
 
 # =============================================================================
@@ -292,9 +293,6 @@ async def metrics():
 # Global instances
 connection_pool: Optional[ConnectionPool] = None
 
-# Upload task tracking (in-memory, use Redis for production durability)
-upload_tasks: dict[str, dict] = {}
-
 @app.on_event("startup")
 async def startup_event():
     """Initialize resources on startup."""
@@ -437,142 +435,9 @@ async def _generate_briefing_background(doc_id: str, file_path):
         # Don't raise - this is a background task
 
 
-async def _process_upload_background(task_id: str, file_path: Path, filename: str, project_id: Optional[str] = None):
-    """
-    Background task to process document upload with progress tracking.
-    Updates the upload_tasks store as processing progresses.
-    """
-    from services.ingestion import IngestionPipeline
-    
-    file_type = file_path.suffix.lower().lstrip(".") or "unknown"
-    app_metrics.ingestion_attempts_total.labels(file_type=file_type).inc()
-    start_time = time.time()
-    
-    try:
-        # Update progress: parsing
-        upload_tasks[task_id]["progress"] = 25
-        upload_tasks[task_id]["stage"] = "parsing"
-        
-        pid = uuid.UUID(project_id) if project_id else None
-        
-        async with IngestionPipeline() as pipeline:
-            # Update progress: embedding
-            upload_tasks[task_id]["progress"] = 50
-            upload_tasks[task_id]["stage"] = "embedding"
-            
-            doc = await pipeline.ingest_document(file_path, project_id=pid)
-            
-            # Update progress: storing
-            upload_tasks[task_id]["progress"] = 75
-            upload_tasks[task_id]["stage"] = "storing"
-        
-        duration = time.time() - start_time
-        app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
-        
-        # Mark as completed
-        upload_tasks[task_id].update({
-            "status": "completed",
-            "progress": 100,
-            "stage": "done",
-            "doc_id": str(doc.doc_id),
-            "filename": doc.filename,
-        })
-        
-        # Trigger briefing generation in background
-        # Create a new task to generate briefing asynchronously
-        import asyncio
-        try:
-            asyncio.create_task(_generate_briefing_background(str(doc.doc_id), file_path))
-            logger.info(f"Briefing generation triggered for doc_id={doc.doc_id}")
-        except Exception as briefing_error:
-            # Don't fail the upload if briefing generation fails to start
-            logger.warning(f"Failed to trigger briefing generation: {briefing_error}")
-        
-    except IngestionError as e:
-        stage = e.context.get("stage", "unknown")
-        app_metrics.ingestion_failures_total.labels(file_type=file_type, stage=stage).inc()
-        upload_tasks[task_id].update({
-            "status": "failed",
-            "progress": 0,
-            "error": str(e.message),
-        })
-    except Exception as e:
-        app_metrics.ingestion_failures_total.labels(file_type=file_type, stage="unknown").inc()
-        upload_tasks[task_id].update({
-            "status": "failed",
-            "progress": 0,
-            "error": f"Document ingestion failed: {str(e)}",
-        })
-
-
-@app.post("/api/v1/sources/upload", status_code=202)
-async def upload_source(
-    file: UploadFile = File(...), 
-    project_id: Optional[str] = None,
-    background_tasks: BackgroundTasks = BackgroundTasks()
-):
-    """
-    Upload and ingest a document source.
-    
-    Returns 202 Accepted immediately with a task_id.
-    Use GET /api/v1/upload/{task_id}/status to track progress.
-    """
-    import shutil
-    
-    # Get settings for upload directory
-    settings = get_settings()
-    upload_path = Path(settings.upload_dir)
-    upload_path.mkdir(parents=True, exist_ok=True)
-    
-    # Generate task ID
-    task_id = str(uuid.uuid4())
-    
-    # Use timestamp suffix for file management (Requirement: file_1715000.pdf)
-    timestamp = int(time.time())
-    file_obj = Path(file.filename)
-    # Sanitize stem to remove potentially dangerous chars if needed, but here simple replacement
-    safe_stem = file_obj.stem.replace(" ", "_")
-    unique_filename = f"{safe_stem}_{timestamp}{file_obj.suffix}"
-    file_path = upload_path / unique_filename
-    
-    try:
-        # Write uploaded file to storage
-        with open(file_path, "wb") as dest:
-            shutil.copyfileobj(file.file, dest)
-    except Exception as e:
-        logger.error(f"Failed to save uploaded file: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-    
-    # Initialize task tracking
-    upload_tasks[task_id] = {
-        "status": "processing",
-        "progress": 10,
-        "stage": "uploaded",
-        "filename": file.filename,
-        "project_id": project_id
-    }
-    
-    # Process in background
-    background_tasks.add_task(_process_upload_background, task_id, file_path, file.filename, project_id)
-    
-    return {
-        "task_id": task_id,
-        "status": "accepted",
-        "message": "Upload accepted. Poll /api/v1/upload/{task_id}/status for progress."
-    }
-
-
-@app.get("/api/v1/upload/{task_id}/status")
-async def get_upload_status(task_id: str):
-    """
-    Get the status of an upload task.
-    
-    Returns progress (0-100) and status (processing/completed/failed).
-    """
-    if task_id not in upload_tasks:
-        raise HTTPException(status_code=404, detail=f"Upload task {task_id} not found")
-    
-    return upload_tasks[task_id]
+# Note: Upload endpoints moved to routers/ingestion.py
+# Old _process_upload_background and upload endpoints removed in favor of
+# database-first Write-Ahead Log pattern
 
 
 

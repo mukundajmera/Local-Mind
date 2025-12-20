@@ -7,7 +7,7 @@ import { useUploadProgress } from "@/hooks/useUploadProgress";
 import { API_BASE_URL } from "@/lib/api";
 
 interface UploadProps {
-    onUploadComplete?: () => void;
+    onUploadComplete?: (docId?: string) => void;
 }
 
 export function Upload({ onUploadComplete }: UploadProps) {
@@ -45,11 +45,11 @@ export function Upload({ onUploadComplete }: UploadProps) {
         if (isComplete) {
             const t = setTimeout(() => {
                 reset();
-                onUploadComplete?.();
+                // onUploadComplete already called immediately after upload
             }, 3000);
             return () => clearTimeout(t);
         }
-    }, [isComplete, onUploadComplete]);
+    }, [isComplete]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files?.[0]) {
@@ -86,8 +86,15 @@ export function Upload({ onUploadComplete }: UploadProps) {
         xhr.onload = () => {
             if (xhr.status === 202) {
                 const response = JSON.parse(xhr.responseText);
-                if (response.task_id) {
+                // New async backend returns { id, status, message }
+                if (response.id) {
+                    setTaskId(response.id);
+                    // Immediately notify parent to start polling
+                    onUploadComplete?.(response.id);
+                } else if (response.task_id) {
+                    // Fallback for old format
                     setTaskId(response.task_id);
+                    onUploadComplete?.(response.task_id);
                 }
             } else {
                 setXhrError(`Upload failed: ${xhr.statusText}`);

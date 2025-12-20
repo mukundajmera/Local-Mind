@@ -8,7 +8,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { useUploadProgress } from "@/hooks/useUploadProgress";
 import { ProjectSelector } from "@/components/ProjectSelector";
 import { Upload } from "@/components/Upload";
 import { API_BASE_URL } from "@/lib/api";
@@ -26,14 +25,33 @@ export function SourcesSidebar() {
         setSourceGuide,
         setLoadingGuide,
         currentProjectId,
+        uploadStatus,
+        uploadErrors,
+        pollDocumentStatus,
     } = useWorkspaceStore();
 
-    // Use new components
-    const handleUploadComplete = () => {
-        fetchSources();
-        // Initial delay fetch handled by Upload component callback logic if needed, 
-        // but explicit fetch here is good.
+    // Track active polling cleanup functions
+    const pollingCleanups = useRef<Map<string, () => void>>(new Map());
+
+    // Handle upload complete - start polling for status
+    const handleUploadComplete = (docId?: string) => {
+        if (docId) {
+            // Start polling for this document
+            const cleanup = pollDocumentStatus(docId, () => {
+                // Cleanup when polling completes
+                pollingCleanups.current.delete(docId);
+            });
+            pollingCleanups.current.set(docId, cleanup);
+        }
     };
+
+    // Cleanup all active polling on unmount
+    useEffect(() => {
+        return () => {
+            pollingCleanups.current.forEach(cleanup => cleanup());
+            pollingCleanups.current.clear();
+        };
+    }, []);
 
     // Fetch sources from API
     const fetchSources = useCallback(async () => {
@@ -205,24 +223,40 @@ export function SourcesSidebar() {
                                     title="Select for chat"
                                 />
 
-                                {/* Source icon */}
+                                {/* Source icon - status-based */}
                                 <div
                                     className="w-10 h-10 rounded-lg bg-cyber-purple/20 flex items-center justify-center shrink-0 cursor-pointer"
                                     onClick={() => handleViewSource(source.id)}
                                 >
-                                    <svg
-                                        className="w-5 h-5 text-cyber-purple"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                        />
-                                    </svg>
+                                    {uploadStatus[source.id] === "pending" || uploadStatus[source.id] === "processing" ? (
+                                        // Spinner for pending/processing
+                                        <svg className="w-5 h-5 text-cyber-blue animate-spin" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    ) : uploadStatus[source.id] === "failed" ? (
+                                        // Error icon for failed
+                                        <div title={uploadErrors[source.id] || "Upload failed"}>
+                                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </div>
+                                    ) : (
+                                        // Standard file icon for ready
+                                        <svg
+                                            className="w-5 h-5 text-cyber-purple"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                            />
+                                        </svg>
+                                    )}
                                 </div>
 
                                 {/* Source info - click to view summary */}
@@ -234,7 +268,15 @@ export function SourcesSidebar() {
                                         {source.title}
                                     </div>
                                     <div className="text-xs theme-text-muted mt-0.5 flex items-center gap-2">
-                                        <span>{source.status === "ready" ? "✓ Ready" : "⏳ Processing..."}</span>
+                                        <span>
+                                            {uploadStatus[source.id] === "pending" || uploadStatus[source.id] === "processing" ? (
+                                                "⏳ Processing..."
+                                            ) : uploadStatus[source.id] === "failed" ? (
+                                                <span className="text-red-400" title={uploadErrors[source.id]}>❌ Failed</span>
+                                            ) : (
+                                                source.status === "ready" ? "✓ Ready" : "⏳ Processing..."
+                                            )}
+                                        </span>
                                         {isSelected && (
                                             <span className="text-cyber-blue">• Selected</span>
                                         )}
