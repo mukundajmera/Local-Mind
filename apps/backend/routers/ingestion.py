@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, Form
 from pydantic import BaseModel
 
 from config import get_settings
@@ -100,15 +100,10 @@ async def _process_document_background(
         duration = time.time() - start_time
         app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
         
-        # Update status: PROCESSING → READY
-        async with DocumentService() as doc_service:
-            await doc_service.update_document_status(
-                doc_id,
-                DocumentStatus.READY
-            )
         
+        # NOTE: We do NOT set READY here anymore. We wait until briefing is done.
         logger.info(
-            f"Ingestion completed for doc_id={doc_id}, "
+            f"Ingestion pipeline completed for doc_id={doc_id}, "
             f"duration={duration:.2f}s"
         )
 
@@ -131,6 +126,14 @@ async def _process_document_background(
         except Exception as e:
             logger.error(f"Briefing generation failed for {doc_id} (non-blocking): {e}")
             # We don't fail the whole document if briefing fails, just log it.
+
+        # Update status: PROCESSING → READY (Finally)
+        async with DocumentService() as doc_service:
+            await doc_service.update_document_status(
+                doc_id,
+                DocumentStatus.READY
+            )
+        logger.info(f"Document processing fully complete (READY) for doc_id={doc_id}")
         
     except Exception as e:
         # Update status: * → FAILED
@@ -161,7 +164,7 @@ async def _process_document_background(
 @router.post("/sources/upload", status_code=202, response_model=UploadResponse)
 async def upload_source(
     file: UploadFile = File(...),
-    project_id: Optional[str] = None,
+    project_id: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """

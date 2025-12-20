@@ -65,13 +65,11 @@ export function Upload({ onUploadComplete }: UploadProps) {
         const formData = new FormData();
         formData.append("file", selectedFile);
 
-        // Add project_id if selected
-        // Note: Query param or FormData? verification script used query param.
-        // Let's use query param to match verification script success.
-        let url = `${API_BASE_URL}/api/v1/sources/upload`;
         if (currentProjectId) {
-            url += `?project_id=${currentProjectId}`;
+            formData.append("project_id", currentProjectId);
         }
+
+        const url = `${API_BASE_URL}/api/v1/sources/upload`;
 
         const xhr = new XMLHttpRequest();
         xhr.open("POST", url, true);
