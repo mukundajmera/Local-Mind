@@ -80,6 +80,10 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         description="Base URL for Ollama or compatible API"
     )
+    llm_api_key: Optional[str] = Field(
+        default="EMPTY",
+        description="API Key for LLM provider"
+    )
     
     # ==========================================================================
     # Runtime Configuration
