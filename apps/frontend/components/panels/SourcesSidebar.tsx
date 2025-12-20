@@ -9,6 +9,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { useUploadProgress } from "@/hooks/useUploadProgress";
+import { ProjectSelector } from "@/components/ProjectSelector";
+import { Upload } from "@/components/Upload";
+import { API_BASE_URL } from "@/lib/api";
 
 export function SourcesSidebar() {
     const {
@@ -22,74 +25,44 @@ export function SourcesSidebar() {
         setLoadingSources,
         setSourceGuide,
         setLoadingGuide,
+        currentProjectId,
     } = useWorkspaceStore();
 
-    const [uploadError, setUploadError] = useState<string | null>(null);
-    const [uploadTaskId, setUploadTaskId] = useState<string | null>(null);
-
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // Use the upload progress hook
-    const { status: uploadStatus, progress, error: uploadProgressError, isComplete, isFailed, reset: resetUpload } = useUploadProgress(uploadTaskId);
-
-    useEffect(() => {
-    }, [uploadTaskId, uploadStatus, progress, isComplete]);
+    // Use new components
+    const handleUploadComplete = () => {
+        fetchSources();
+        // Initial delay fetch handled by Upload component callback logic if needed, 
+        // but explicit fetch here is good.
+    };
 
     // Fetch sources from API
     const fetchSources = useCallback(async () => {
         setLoadingSources(true);
         try {
-            const response = await fetch("http://localhost:8000/api/v1/sources");
+            let url = `${API_BASE_URL}/api/v1/sources`;
+            if (currentProjectId) {
+                url += `?project_id=${currentProjectId}`;
+            }
+            const response = await fetch(url);
             if (response.ok) {
                 const data = await response.json();
                 setSources(data.sources || []);
             } else {
                 console.error("SourcesSidebar: Fetch failed status:", response.status);
+                setSources([]);
             }
         } catch (error) {
             console.error("Failed to fetch sources:", error);
+            setSources([]);
         } finally {
             setLoadingSources(false);
         }
-    }, [setSources, setLoadingSources]);
+    }, [setSources, setLoadingSources, currentProjectId]);
 
-    // Fetch sources on mount
+    // Fetch sources on mount and project change
     useEffect(() => {
         fetchSources();
     }, [fetchSources]);
-
-    // When upload completes, refresh sources and reset
-    useEffect(() => {
-        if (isComplete) {
-            // Immediate fetch
-            fetchSources();
-
-            // Retry fetch after delays to handle eventual consistency of vector store
-            const t1 = setTimeout(() => fetchSources(), 500);
-            const t2 = setTimeout(() => fetchSources(), 1500);
-
-            // Reset after a brief delay to show 100% completion
-            const t3 = setTimeout(() => {
-                setUploadTaskId(null);
-                resetUpload();
-            }, 2000);
-
-            return () => {
-                clearTimeout(t1);
-                clearTimeout(t2);
-                clearTimeout(t3);
-            };
-        }
-    }, [isComplete, fetchSources, resetUpload]);
-
-    // Handle upload failure
-    useEffect(() => {
-        if (isFailed && uploadProgressError) {
-            setUploadError(uploadProgressError);
-            setUploadTaskId(null);
-            resetUpload();
-        }
-    }, [isFailed, uploadProgressError, resetUpload]);
 
     // Handle clicking source title to view summary
     const handleViewSource = async (sourceId: string) => {
@@ -98,7 +71,7 @@ export function SourcesSidebar() {
         // Try to fetch actual briefing from API
         setLoadingGuide(true);
         try {
-            const response = await fetch(`http://localhost:8000/api/v1/sources/${sourceId}/briefing`);
+            const response = await fetch(`${API_BASE_URL}/api/v1/sources/${sourceId}/briefing`);
             if (response.ok) {
                 const data = await response.json();
                 setSourceGuide({
@@ -134,94 +107,60 @@ export function SourcesSidebar() {
         toggleSourceSelection(sourceId);
     };
 
-    // Handle file upload - now returns immediately with task_id
-    const handleFileUpload = async (file: File) => {
-        setUploadError(null);
-        setUploadTaskId(null);
-
-        try {
-            const formData = new FormData();
-            formData.append("file", file);
-
-            const response = await fetch("http://localhost:8000/api/v1/sources/upload", {
-                method: "POST",
-                body: formData,
-            });
-
-            if (!response.ok) {
-                let errorMessage = `Upload failed: ${response.status}`;
-                try {
-                    const errorData = await response.json();
-                    if (errorData.error && errorData.error.message) {
-                        errorMessage = errorData.error.message;
-                    } else if (errorData.detail) {
-                        errorMessage = errorData.detail;
-                    }
-                } catch {
-                    // Could not parse JSON, use default message
-                }
-                setUploadError(errorMessage);
-                return;
-            }
-
-            // Get task_id and start polling
-            const data = await response.json();
-            if (data.task_id) {
-                setUploadTaskId(data.task_id);
-            }
-        } catch (error) {
-            console.error("Upload error:", error);
-            setUploadError("Upload failed. Please try again.");
-        }
-    };
-
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setUploadError(null);
-        const file = e.target.files?.[0];
-        if (file) {
-            handleFileUpload(file);
-        }
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-        }
-    };
-
     const handleDeleteSource = async (sourceId: string, e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!confirm("Are you sure you want to delete this source? This cannot be undone.")) return;
+
+        // Optimistic Deletion: Remove from UI immediately
+        const previousSources = sources;
+        const previousSelected = selectedSourceIds;
+        const previousActive = activeSourceId;
+
+        setSources(sources.filter(s => s.id !== sourceId));
+        if (selectedSourceIds.includes(sourceId)) {
+            toggleSourceSelection(sourceId); // This toggles, so if it was selected, it deselects. 
+            // Better to force remove, but store toggle logic doesn't allow specific set. 
+            // Actually, if we remove the source, the ID in selectedSourceIds becomes orphan.
+            // Let's just rely on the UI list filtering.
+        }
+        if (activeSourceId === sourceId) {
+            setActiveSource(null);
+        }
+
         try {
-            const response = await fetch(`http://localhost:8000/api/v1/sources/${sourceId}`, {
+            const response = await fetch(`${API_BASE_URL}/api/v1/sources/${sourceId}`, {
                 method: "DELETE",
             });
-            if (response.ok) {
-                await fetchSources();
-                if (activeSourceId === sourceId) {
-                    setActiveSource(null);
-                }
+            if (!response.ok) {
+                throw new Error("Deletion failed");
             }
+            // If success, do nothing, we are already good.
         } catch (error) {
             console.error("Delete error:", error);
+            // Revert on failure
+            alert("Failed to delete source. Restoring...");
+            setSources(previousSources);
+            if (previousActive) setActiveSource(previousActive);
+            // We can't easily revert selection without direct set access, but it's a minor UX blip compared to the deletion.
+            fetchSources(); // Just re-fetch to be safe
         }
     };
 
     return (
         <div className="flex flex-col h-full" data-testid="sources-sidebar">
             {/* Header */}
-            <div className="panel-header flex items-center justify-between">
-                <span>Sources</span>
-                <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-cyber-blue hover:text-white transition-colors"
-                    data-testid="add-source-btn"
-                >
-                    + Add
-                </button>
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.md,.txt,.docx"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                />
+            <div className="panel-header mb-2">
+                <div className="flex items-center justify-between mb-3">
+                    <span>Sources</span>
+                </div>
+            </div>
+
+            {/* Project Selector */}
+            <ProjectSelector />
+
+            {/* Upload Area */}
+            <div className="px-3 mb-4">
+                <Upload onUploadComplete={fetchSources} />
             </div>
 
             {/* Selection hint */}
@@ -233,51 +172,18 @@ export function SourcesSidebar() {
 
             {/* Sources List */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {/* Upload Progress Bar */}
-                {uploadTaskId && (
-                    <div className="p-3 bg-cyber-blue/10 border border-cyber-blue/20 rounded-xl mb-2" data-testid="upload-progress">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs text-cyber-blue">
-                                {uploadStatus === "processing" ? "Processing..." : "Uploading..."}
-                            </span>
-                            <span className="text-xs theme-text-muted">{progress}%</span>
-                        </div>
-                        <div className="w-full h-2 bg-glass-100 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-cyber-blue transition-all duration-300 rounded-full"
-                                style={{ width: `${progress}%` }}
-                            />
-                        </div>
-                    </div>
-                )}
-                {uploadError && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 mb-2 flex items-center justify-between">
-                        <span>{uploadError}</span>
-                        <button
-                            onClick={() => setUploadError(null)}
-                            className="ml-2 hover:text-red-300"
-                            title="Dismiss"
-                        >
-                            ✕
-                        </button>
-                    </div>
-                )}
                 {isLoadingSources ? (
                     <div className="text-xs theme-text-muted text-center py-8">
                         Loading sources...
                     </div>
                 ) : sources.length === 0 ? (
-                    <div
-                        className="text-center py-8 px-4 border-2 border-dashed border-glass rounded-xl cursor-pointer hover:border-cyber-blue/50 transition-colors"
-                        onClick={() => fileInputRef.current?.click()}
-                    >
-                        <div className="text-3xl mb-2">📄</div>
-                        <div className="text-sm theme-text-muted">Add your first source</div>
+                    <div className="text-center py-8 px-4">
+                        <div className="text-sm theme-text-muted">No sources found</div>
                         <div className="text-xs theme-text-faint mt-1">
-                            PDF, Markdown, or TXT
+                            {currentProjectId ? "Upload a file to this project" : "Create or select a project"}
                         </div>
                     </div>
-                ) : (
+                ) : ( // Existing map logic below...
                     sources.map((source) => {
                         const isSelected = selectedSourceIds.includes(source.id);
                         const isActive = activeSourceId === source.id;
@@ -285,7 +191,7 @@ export function SourcesSidebar() {
                         return (
                             <div
                                 key={source.id}
-                                className={`source-file-card ${isActive ? 'active' : ''}`}
+                                className={`source-file-card ${isActive ? 'active' : ''} group`}
                                 data-testid={`source-${source.id}`}
                             >
                                 {/* Checkbox for chat selection */}
@@ -342,7 +248,7 @@ export function SourcesSidebar() {
                                     title="Delete source"
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
                                 </button>
                             </div>

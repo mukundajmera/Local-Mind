@@ -125,7 +125,10 @@ export function SourceGuide() {
                         {sourceGuide?.suggestedQuestions?.map((question, index) => (
                             <button
                                 key={index}
-                                onClick={() => setViewMode("chat")}
+                                onClick={() => {
+                                    useWorkspaceStore.getState().setPendingChatInput(question);
+                                    setViewMode("chat");
+                                }}
                                 className="w-full text-left p-3 rounded-lg bg-glass-100 hover:bg-glass-200 theme-text-primary hover:text-white text-sm transition-colors"
                             >
                                 {question}

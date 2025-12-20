@@ -48,6 +48,10 @@ interface WorkspaceState {
 
     // Pinned messages
     pinnedMessages: PinnedMessage[];
+    pendingChatInput: string | null;
+
+    // Project
+    currentProjectId: string | null;
 
     // Actions
     setSources: (sources: Source[]) => void;
@@ -62,6 +66,8 @@ interface WorkspaceState {
     setLoadingGuide: (loading: boolean) => void;
     pinMessage: (message: PinnedMessage) => void;
     unpinMessage: (id: string) => void;
+    setPendingChatInput: (input: string | null) => void;
+    setCurrentProject: (id: string | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -77,6 +83,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     sourceGuide: null,
     isLoadingGuide: false,
     pinnedMessages: [],
+    pendingChatInput: null,
+    currentProjectId: null,
 
     // Actions
     setSources: (sources) => set({ sources }),
@@ -99,5 +107,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     unpinMessage: (id) => set((state) => ({
         pinnedMessages: state.pinnedMessages.filter(m => m.id !== id)
     })),
+    setPendingChatInput: (input) => set({ pendingChatInput: input }),
+    setCurrentProject: (id) => set({ currentProjectId: id }),
 }));
 

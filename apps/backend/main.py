@@ -358,13 +358,24 @@ async def shutdown_event():
 # =============================================================================
 
 @app.get("/api/v1/sources")
-async def list_sources():
-    """List all ingested sources from Milvus."""
+async def list_sources(project_id: Optional[str] = None):
+    """
+    List all ingested sources from Milvus.
+    
+    Args:
+        project_id: Optional Project ID to filter sources
+    """
     try:
         from services.ingestion import IngestionPipeline
+        
+        # Parse project_id if provided
+        pid = uuid.UUID(project_id) if project_id else None
+        
         async with IngestionPipeline() as pipeline:
-            sources = await pipeline.get_all_sources()
+            sources = await pipeline.get_all_sources(project_id=pid)
         return {"sources": sources}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project_id format")
     except Exception as e:
         logger.error(f"Failed to list sources: {e}", exc_info=True)
         # Return empty list for graceful degradation
@@ -426,7 +437,7 @@ async def _generate_briefing_background(doc_id: str, file_path):
         # Don't raise - this is a background task
 
 
-async def _process_upload_background(task_id: str, file_path: Path, filename: str):
+async def _process_upload_background(task_id: str, file_path: Path, filename: str, project_id: Optional[str] = None):
     """
     Background task to process document upload with progress tracking.
     Updates the upload_tasks store as processing progresses.
@@ -442,12 +453,14 @@ async def _process_upload_background(task_id: str, file_path: Path, filename: st
         upload_tasks[task_id]["progress"] = 25
         upload_tasks[task_id]["stage"] = "parsing"
         
+        pid = uuid.UUID(project_id) if project_id else None
+        
         async with IngestionPipeline() as pipeline:
             # Update progress: embedding
             upload_tasks[task_id]["progress"] = 50
             upload_tasks[task_id]["stage"] = "embedding"
             
-            doc = await pipeline.ingest_document(file_path)
+            doc = await pipeline.ingest_document(file_path, project_id=pid)
             
             # Update progress: storing
             upload_tasks[task_id]["progress"] = 75
@@ -493,7 +506,11 @@ async def _process_upload_background(task_id: str, file_path: Path, filename: st
 
 
 @app.post("/api/v1/sources/upload", status_code=202)
-async def upload_source(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
+async def upload_source(
+    file: UploadFile = File(...), 
+    project_id: Optional[str] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
     """
     Upload and ingest a document source.
     
@@ -509,7 +526,13 @@ async def upload_source(file: UploadFile = File(...), background_tasks: Backgrou
     
     # Generate task ID
     task_id = str(uuid.uuid4())
-    unique_filename = f"{task_id}_{file.filename}"
+    
+    # Use timestamp suffix for file management (Requirement: file_1715000.pdf)
+    timestamp = int(time.time())
+    file_obj = Path(file.filename)
+    # Sanitize stem to remove potentially dangerous chars if needed, but here simple replacement
+    safe_stem = file_obj.stem.replace(" ", "_")
+    unique_filename = f"{safe_stem}_{timestamp}{file_obj.suffix}"
     file_path = upload_path / unique_filename
     
     try:
@@ -526,10 +549,11 @@ async def upload_source(file: UploadFile = File(...), background_tasks: Backgrou
         "progress": 10,
         "stage": "uploaded",
         "filename": file.filename,
+        "project_id": project_id
     }
     
     # Process in background
-    background_tasks.add_task(_process_upload_background, task_id, file_path, file.filename)
+    background_tasks.add_task(_process_upload_background, task_id, file_path, file.filename, project_id)
     
     return {
         "task_id": task_id,

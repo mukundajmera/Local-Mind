@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { API_BASE_URL } from "@/lib/api";
 
 const PROMPT_SUGGESTIONS = [
     {
@@ -64,7 +65,11 @@ export function ChatPanel() {
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage } = useWorkspaceStore();
+    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage, pendingChatInput, setPendingChatInput } = useWorkspaceStore();
+
+    // Explicit reference to handleSend for the useEffect to call it
+    // We need to use a ref to avoid circular dependency in useEffect
+    const handleSendRef = useRef<() => void>(() => { });
 
     const activeSource = sources.find(s => s.id === activeSourceId);
     const selectedSources = sources.filter(s => selectedSourceIds.includes(s.id));
@@ -76,27 +81,41 @@ export function ChatPanel() {
         }
     }, [messages]);
 
-    const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+    // Handle pending input (auto-send)
+    useEffect(() => {
+        if (pendingChatInput) {
+            const content = pendingChatInput; // Capture it
+            setPendingChatInput(null); // Clear it
+            handleSend(content);
+        }
+    }, [pendingChatInput, setPendingChatInput]);
+
+    const handleSend = async (contentOverride?: string) => {
+        // Determine what content to send
+        const contentToSend = typeof contentOverride === 'string' ? contentOverride : input;
+
+        if (!contentToSend.trim() || isLoading) return;
 
         const userMessage: Message = {
-            id: Date.now().toString(),
+            id: crypto.randomUUID(),
             role: "user",
-            content: input,
+            content: contentToSend,
             timestamp: new Date(),
         };
 
         setMessages((prev) => [...prev, userMessage]);
-        const userInput = input;
-        setInput("");
+        // Only clear input if we sent what was in the input box
+        if (contentToSend === input) {
+            setInput("");
+        }
         setIsLoading(true);
 
         try {
-            const response = await fetch("http://localhost:8000/api/v1/chat", {
+            const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    message: userInput,
+                    message: contentToSend,
                     source_ids: selectedSourceIds.length > 0 ? selectedSourceIds : null,
                     strategies: ["sources"],
                 }),
@@ -110,7 +129,7 @@ export function ChatPanel() {
             const data = await response.json();
 
             const assistantMessage: Message = {
-                id: (Date.now() + 1).toString(),
+                id: crypto.randomUUID(),
                 role: "assistant",
                 content: data.response,
                 timestamp: new Date(),
@@ -119,7 +138,7 @@ export function ChatPanel() {
         } catch (error) {
             console.error("Chat error:", error);
             const errorMessage: Message = {
-                id: (Date.now() + 1).toString(),
+                id: crypto.randomUUID(),
                 role: "assistant",
                 content: `⚠️ Error: ${error instanceof Error ? error.message : "Failed to connect"}. Please ensure the backend is running.`,
                 timestamp: new Date(),
@@ -268,7 +287,7 @@ export function ChatPanel() {
                         data-testid="chat-input"
                     />
                     <button
-                        onClick={handleSend}
+                        onClick={() => handleSend()}
                         disabled={!input.trim() || isLoading}
                         className="glass-button px-6 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-glow"
                         data-testid="send-button"

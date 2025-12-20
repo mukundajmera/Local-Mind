@@ -334,7 +334,7 @@ class IngestionPipeline:
             self._milvus_client.close()
     
     async def _ensure_milvus_collection(self):
-        """Create Milvus collection if it doesn't exist."""
+        """Create Milvus collection if it doesn't exist and ensure it's loaded."""
         collection_name = self.settings.milvus_collection
         
         try:
@@ -364,6 +364,8 @@ class IngestionPipeline:
                     params={"nlist": 128}
                 )
                 
+                schema.add_field(field_name="project_id", datatype=DataType.VARCHAR, max_length=36)
+                
                 self._milvus_client.create_collection(
                     collection_name=collection_name,
                     schema=schema,
@@ -371,11 +373,26 @@ class IngestionPipeline:
                 )
                 logger.info(f"Created Milvus collection '{collection_name}' with explicit schema")
             
+            # CRITICAL: Load collection into memory for queries to work
+            # Without this, queries will fail with "channel not subscribed" errors
+            # Run in executor since it's a synchronous blocking call
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self._milvus_client.load_collection(collection_name)
+                )
+                logger.debug(f"Collection '{collection_name}' loaded into memory")
+            except Exception as load_error:
+                # Collection might already be loaded, which is fine
+                logger.debug(f"Collection load status check: {load_error}")
+            
         except MilvusException as e:
             logger.error(f"Milvus collection setup failed: {e}")
             raise
     
-    async def ingest_document(self, file_path: Path) -> IngestedDocument:
+    async def ingest_document(self, file_path: Path, project_id: Optional[UUID] = None) -> IngestedDocument:
         """
         Fast ingestion pipeline for a document (Option B: Pure Vector).
         
@@ -389,6 +406,7 @@ class IngestionPipeline:
         
         Args:
             file_path: Path to document file (PDF, TXT, MD supported)
+            project_id: Optional Project ID for multi-tenancy
             
         Returns:
             IngestedDocument with metadata
@@ -404,6 +422,7 @@ class IngestionPipeline:
         doc = IngestedDocument(
             filename=file_path.name,
             file_size_bytes=file_path.stat().st_size,
+            project_id=project_id,
         )
         
         # 2. Parse document
@@ -510,6 +529,8 @@ class IngestionPipeline:
             for item in data:
                 item["filename"] = doc.filename
                 item["upload_date"] = doc.upload_date.isoformat()
+                if doc.project_id:
+                    item["project_id"] = str(doc.project_id)
             
             self._milvus_client.upsert(
                 collection_name=self.settings.milvus_collection,
@@ -534,23 +555,30 @@ class IngestionPipeline:
             logger.error(f"Milvus persistence failed: {e}")
             raise
     
-    async def get_all_sources(self) -> list[dict]:
+    async def get_all_sources(self, project_id: Optional[UUID] = None) -> list[dict]:
         """
         Get a list of all ingested documents from Milvus.
         
+        Args:
+            project_id: Optional filter for multi-tenancy
+            
         Returns:
             List of dicts with document metadata.
         """
         try:
-            # Query Milvus for unique doc_ids
-            # We'll query a sample of vectors and extract unique doc_ids
-            results = self._milvus_client.query(
-                collection_name=self.settings.milvus_collection,
-                filter="",  # No filter = get all
-                output_fields=["doc_id", "filename"],
-                limit=10000,  # Get enough to cover typical usage
-                consistency_level="Strong",
-            )
+            # Build query parameters
+            query_params = {
+                "collection_name": self.settings.milvus_collection,
+                "output_fields": ["doc_id", "filename", "project_id", "upload_date"],
+                "limit": 10000,  # Get enough to cover typical usage
+                "consistency_level": "Strong",
+            }
+            
+            # Only add filter if project_id is provided
+            if project_id:
+                query_params["filter"] = f'project_id == "{str(project_id)}"'
+            
+            results = self._milvus_client.query(**query_params)
             
             # Aggregate by doc_id
             sources_map = {}
@@ -559,6 +587,7 @@ class IngestionPipeline:
                 if doc_id and doc_id not in sources_map:
                     sources_map[doc_id] = {
                         "id": doc_id,
+                        "doc_id": doc_id,  # Add explicit doc_id field
                         "title": item.get("filename", "Unknown"),
                         "filename": item.get("filename", "Unknown"),
                         "uploaded_at": item.get("upload_date", ""),
@@ -591,25 +620,56 @@ class IngestionPipeline:
             # Delete all entities with matching doc_id
             filter_expr = f'doc_id == "{doc_id}"'
             
-            # First, count how many we're deleting
+            # First, get the filename so we can delete it from disk
+            # We only need one chunk to get the filename
             existing = self._milvus_client.query(
                 collection_name=self.settings.milvus_collection,
                 filter=filter_expr,
-                output_fields=["id"],
-                limit=10000,
+                output_fields=["id", "filename"],
+                limit=1, # Just need one to get the filename
             )
             
             if not existing:
                 return {"found": False, "chunks_deleted": 0}
             
-            # Delete by filter
+            filename = existing[0].get("filename")
+            
+            # Now delete from Milvus
             self._milvus_client.delete(
                 collection_name=self.settings.milvus_collection,
                 filter=filter_expr,
             )
             
-            logger.info(f"Deleted {len(existing)} chunks for document {doc_id}")
-            return {"found": True, "chunks_deleted": len(existing)}
+
+            # Verify deletion from Milvus by querying again
+            deleted_check = self._milvus_client.query(
+                collection_name=self.settings.milvus_collection,
+                filter=filter_expr,
+                output_fields=["id"],
+                limit=1,
+            )
+            
+            if deleted_check:
+                logger.error(f"CRITICAL: Failed to delete doc {doc_id} from Milvus even after delete call!")
+                # Don't delete from disk if Milvus deletion failed
+                return {"found": True, "chunks_deleted": "failed", "disk_deleted": False, "error": "Milvus deletion verification failed"}
+
+            # Delete file from disk only if Milvus deletion confirmed
+            disk_deleted = False
+            if filename:
+                try:
+                    upload_path = Path(self.settings.upload_dir) / filename
+                    if upload_path.exists():
+                        upload_path.unlink()
+                        disk_deleted = True
+                        logger.info(f"Deleted file from disk: {upload_path}")
+                    else:
+                        logger.warning(f"File not found on disk: {upload_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete file from disk: {e}")
+            
+            logger.info(f"Deleted chunks for document {doc_id} (Disk: {disk_deleted})")
+            return {"found": True, "chunks_deleted": "verified", "disk_deleted": disk_deleted}
             
         except MilvusException as e:
             logger.error(f"Failed to delete document {doc_id}: {e}")

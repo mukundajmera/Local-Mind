@@ -1,0 +1,86 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e7]: Local Mind
+        - navigation [ref=e8]:
+          - link "Research Studio" [ref=e9] [cursor=pointer]:
+            - /url: /
+          - link "Notebook" [ref=e10] [cursor=pointer]:
+            - /url: /notebook
+      - generic [ref=e11]:
+        - button "Help & Getting Started" [ref=e12] [cursor=pointer]:
+          - img [ref=e13]
+        - generic [ref=e15]:
+          - generic [ref=e16]: Theme
+          - generic [ref=e17]:
+            - button "System" [ref=e18] [cursor=pointer]
+            - button "Dark" [ref=e19] [cursor=pointer]
+            - button "Light" [ref=e20] [cursor=pointer]
+        - button "Show notes" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - generic [ref=e24]:
+          - generic [ref=e25]: "Status:"
+          - generic [ref=e26]: Ready
+    - generic [ref=e28]:
+      - complementary [ref=e29]:
+        - generic [ref=e30]:
+          - generic [ref=e33]: Sources
+          - generic [ref=e35] [cursor=pointer]:
+            - generic [ref=e36]:
+              - img [ref=e37]
+              - generic [ref=e39]: test project 1
+            - img [ref=e40]
+          - button "Click to upload PDF/TXT" [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e48]: Click to upload PDF/TXT
+          - generic [ref=e49]: ☑️ = Chat with • Click title = View summary
+          - generic [ref=e50]:
+            - generic [ref=e51] [cursor=pointer]:
+              - checkbox "Select for chat" [ref=e52]
+              - img [ref=e54]
+              - generic [ref=e56]:
+                - generic [ref=e57]: applin-AGENTS_1766048677.MD
+                - generic [ref=e59]: ✓ Ready
+              - button "Delete source" [ref=e60]:
+                - img [ref=e61]
+            - generic [ref=e63] [cursor=pointer]:
+              - checkbox "Select for chat" [ref=e64]
+              - img [ref=e66]
+              - generic [ref=e68]:
+                - generic [ref=e69]: syslens-AGENTS_1766048688.md
+                - generic [ref=e71]: ✓ Ready
+              - button "Delete source" [ref=e72]:
+                - img [ref=e73]
+      - main [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]: 📚
+          - heading "Get Started with Local Mind" [level=2] [ref=e78]
+          - paragraph [ref=e79]: "Upload documents and start exploring with AI. Here's how:"
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - generic [ref=e82]: 1️⃣
+              - generic [ref=e83]:
+                - strong [ref=e84]: Upload a source
+                - paragraph [ref=e85]: Click "+ Add" in the Sources panel
+            - generic [ref=e86]:
+              - generic [ref=e87]: 2️⃣
+              - generic [ref=e88]:
+                - strong [ref=e89]: Select for chat
+                - paragraph [ref=e90]: ☑️ Use checkbox to include in queries
+            - generic [ref=e91]:
+              - generic [ref=e92]: 3️⃣
+              - generic [ref=e93]:
+                - strong [ref=e94]: View summary
+                - paragraph [ref=e95]: 📄 Click the title to read insights
+          - generic [ref=e96]:
+            - generic [ref=e97]: 📄 PDF
+            - generic [ref=e98]: 📝 Markdown
+            - generic [ref=e99]: 📑 TXT
+  - button "Open Next.js Dev Tools" [ref=e105] [cursor=pointer]:
+    - img [ref=e106]
+  - alert [ref=e109]
+```

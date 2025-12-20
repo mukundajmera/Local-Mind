@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { UploadStatusResponse } from "@/types/api";
+import { API_BASE_URL } from "@/lib/api";
 
 /**
  * Hook to poll upload task status and track progress.
@@ -17,7 +18,7 @@ export function useUploadProgress(taskId: string | null) {
         if (!taskId) return;
 
         try {
-            const response = await fetch(`http://localhost:8000/api/v1/upload/${taskId}/status`);
+            const response = await fetch(`${API_BASE_URL}/api/v1/upload/${taskId}/status`);
 
             if (!response.ok) {
                 throw new Error(`Failed to fetch status: ${response.status}`);

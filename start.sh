@@ -1,8 +1,8 @@
-#!/bin/zsh
+#!/bin/bash
 # ==============================================================================
 # Local Mind - macOS Startup Script
 # ==============================================================================
-# Usage: ./start.sh [backend|frontend|all|stop]
+# Usage: ./start.sh [backend|frontend|infrastructure|all|stop]
 # ==============================================================================
 
 set -e
@@ -18,6 +18,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/apps/backend"
 FRONTEND_DIR="$PROJECT_ROOT/apps/frontend"
 LOGS_DIR="$PROJECT_ROOT/logs"
+COMPOSE_FILE="$PROJECT_ROOT/infrastructure/nerdctl/compose.yaml"
+NAMESPACE="sovereign-ai"
 
 # Ensure logs directory exists
 mkdir -p "$LOGS_DIR"
@@ -76,9 +78,43 @@ wait_for_service() {
     return 1
 }
 
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        log_error "docker command not found!"
+        exit 1
+    fi
+}
+
 # ==============================================================================
 # Service Management
 # ==============================================================================
+
+start_infrastructure() {
+    log_info "Starting Infrastructure (Neo4j, Milvus, Redis)..."
+    check_docker
+    
+    # Check if .env exists for compose
+    if [ ! -f "$(dirname "$COMPOSE_FILE")/.env" ]; then
+        if [ -f "$(dirname "$COMPOSE_FILE")/.env.example" ]; then
+             log_warn "Creating .env from example..."
+             cp "$(dirname "$COMPOSE_FILE")/.env.example" "$(dirname "$COMPOSE_FILE")/.env"
+        fi
+    fi
+
+    docker compose -f "$COMPOSE_FILE" -p "$NAMESPACE" up -d
+    
+    log_info "Waiting for infrastructure to assert readiness..."
+    # A simple sleep for now, could be improved with health checks
+    sleep 5 
+    log_success "Infrastructure containers started."
+}
+
+stop_infrastructure() {
+    log_info "Stopping Infrastructure..."
+    check_docker
+    docker compose -f "$COMPOSE_FILE" -p "$NAMESPACE" down
+    log_success "Infrastructure stopped."
+}
 
 start_backend() {
     log_info "Starting Backend (FastAPI + Uvicorn)..."
@@ -89,7 +125,7 @@ start_backend() {
         sleep 1
     fi
     
-    # Use root-level venv instead of backend-specific venv
+    # Use root-level venv
     if [ ! -d "$PROJECT_ROOT/venv" ]; then
         log_error "Python venv not found! Run: ./setup_env.sh"
         exit 1
@@ -153,6 +189,8 @@ start_frontend() {
 stop_services() {
     log_info "Stopping all services..."
     
+    stop_infrastructure
+
     if [ -f "$LOGS_DIR/backend.pid" ]; then
         kill -9 $(cat "$LOGS_DIR/backend.pid") 2>/dev/null && log_success "Backend stopped"
         rm -f "$LOGS_DIR/backend.pid"
@@ -177,30 +215,37 @@ show_status() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     
+    # Docker Infrastructure Status
+    echo -e "${BLUE}--- Infrastructure (Docker) ---${NC}"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "sce-" || echo "No 'sce-' containers running"
+    echo ""
+
     # Backend status
+    echo -e "${BLUE}--- Backend (Port 8000) ---${NC}"
     if check_port 8000; then
         local health=$(curl -s http://127.0.0.1:8000/health 2>/dev/null)
         if [ -n "$health" ]; then
-            log_success "Backend:  http://localhost:8000 ✓"
-            log_info "          API Docs: http://localhost:8000/docs"
+            log_success "Backend is responding (200 OK)"
+            log_info "API Docs: http://localhost:8000/docs"
         else
-            log_warn "Backend:  Port 8000 occupied but not responding"
+            log_warn "Port 8000 occupied but NOT responding"
         fi
     else
-        log_error "Backend:  Not running"
+        log_error "Not running"
     fi
+    echo ""
     
     # Frontend status
+    echo -e "${BLUE}--- Frontend (Port 3000) ---${NC}"
     if check_port 3000; then
         if curl -s http://127.0.0.1:3000 >/dev/null 2>&1; then
-            log_success "Frontend: http://localhost:3000 ✓"
+            log_success "Frontend is responding (200 OK)"
         else
-            log_warn "Frontend: Port 3000 occupied but not responding"
+            log_warn "Port 3000 occupied but NOT responding"
         fi
     else
-        log_error "Frontend: Not running"
+        log_error "Not running"
     fi
-    
     echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo ""
@@ -211,13 +256,14 @@ show_help() {
     echo "Usage: ./start.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  all       Start both backend and frontend (default)"
-    echo "  backend   Start only the backend"
-    echo "  frontend  Start only the frontend"
-    echo "  stop      Stop all services"
-    echo "  status    Show status of all services"
-    echo "  logs      Tail logs from both services"
-    echo "  help      Show this help message"
+    echo "  all            Start EVERYTHING (Infrastructure + Backend + Frontend) [Default]"
+    echo "  infrastructure Start only Docker containers (Neo4j, Milvus, Redis)"
+    echo "  backend        Start only the backend"
+    echo "  frontend       Start only the frontend"
+    echo "  stop           Stop ALL services"
+    echo "  status         Show status of all services"
+    echo "  logs           Tail logs from both backend and frontend"
+    echo "  help           Show this help message"
     echo ""
 }
 
@@ -237,6 +283,10 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 
 case "${1:-all}" in
+    infrastructure)
+        start_infrastructure
+        show_status
+        ;;
     backend)
         start_backend
         show_status
@@ -246,10 +296,11 @@ case "${1:-all}" in
         show_status
         ;;
     all)
+        start_infrastructure
         start_backend
         start_frontend
         show_status
-        log_success "All services started! Open http://localhost:3000 in your browser."
+        log_success "All services started! Open http://localhost:3000"
         ;;
     stop)
         stop_services
