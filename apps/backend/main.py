@@ -307,6 +307,37 @@ async def startup_event():
         print("Please check your .env file and ensure all required settings are present.", file=sys.stderr)
         sys.exit(1)
     
+    # 1.5. Ensure database directory exists
+    try:
+        # Create data directory for SQLite database
+        data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Database directory ensured: {data_dir.absolute()}")
+        
+        # Create upload directory
+        upload_dir = Path(settings.upload_dir)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Upload directory ensured: {upload_dir.absolute()}")
+        
+        # Initialize database tables
+        from database.models import Base
+        from sqlalchemy.ext.asyncio import create_async_engine
+        
+        # Use relative path for SQLite database
+        db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/localmind.db")
+        engine = create_async_engine(db_url, echo=False)
+        
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        
+        await engine.dispose()
+        logger.info("Database tables initialized successfully")
+        
+    except Exception as e:
+        logger.error("Database initialization failed", error=str(e), exc_info=True)
+        print(f"⚠️  Database initialization failed: {e}", file=sys.stderr)
+        # Don't exit - allow startup to continue
+    
     # 2. Configure logging
     configure_logging(environment=settings.environment)
     
@@ -492,10 +523,16 @@ async def chat(request: schemas.ChatRequest):
                     context=context_text if context_text else None,
                     # history=... # TODO: Add history support
                 )
-        except Exception as e:
-            raise LLMServiceError(
-                message=f"LLM generation failed: {str(e)}",
-                original_error=e
+        except (LLMServiceError, Exception) as e:
+            # Fallback for chat when LLM is offline
+            logger.warning(f"LLM Chat failed (using fallback): {e}")
+            response = (
+                "⚠️ **LLM Service Offline**\n\n"
+                "I am unable to generate a real response because the local AI service (Ollama) is not reachable or configured.\n\n"
+                "**System info:**\n"
+                f"- Context retrieved: {'Yes' if context_text else 'No'}\n"
+                f"- Sources found: {len(sources)}\n"
+                f"- Error: {str(e)}"
             )
             
         return {
@@ -506,15 +543,16 @@ async def chat(request: schemas.ChatRequest):
             "searched_source_ids": request.source_ids,
         }
             
-    except LLMServiceError:
-        # Re-raise custom errors
-        raise
     except Exception as e:
         logger.exception(f"Chat request failed: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Chat failed: {str(e)}"
-        )
+        # Even top-level failure shouldn't crash frontend info
+        return {
+            "response": "An critical error occurred in the chat service.",
+            "sources": [],
+            "context_used": False,
+            "filtered_sources": False,
+            "searched_source_ids": None,
+        }
 
 
 # =============================================================================
@@ -611,34 +649,4 @@ async def delete_note(note_id: str):
         )
 
 
-# =============================================================================
-# Briefing API Endpoint
-# =============================================================================
 
-@app.get("/api/v1/sources/{doc_id}/briefing", response_model=schemas.BriefingResponse)
-async def get_document_briefing(doc_id: str):
-    """
-    Retrieve the automated briefing for a document.
-    
-    Returns 404 if document doesn't exist or briefing hasn't been generated yet.
-    """
-    try:
-        async with BriefingService() as briefing_service:
-            briefing = await briefing_service.get_briefing(doc_id)
-        
-        if not briefing:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Briefing not found for document {doc_id}. It may still be generating."
-            )
-        
-        return briefing
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to retrieve briefing for {doc_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve briefing: {str(e)}"
-        )

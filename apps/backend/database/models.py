@@ -19,6 +19,7 @@ from sqlalchemy import (
     Enum,
     Index,
     func,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
@@ -110,6 +111,25 @@ class DocumentModel(Base):
         Text,
         nullable=True,
         doc="Error details if status is FAILED"
+    )
+
+    # Briefing Metadata
+    summary = Column(
+        Text,
+        nullable=True,
+        doc="AI-generated summary"
+    )
+    
+    topics = Column(
+        JSON,
+        nullable=True,
+        doc="AI-extracted key topics"
+    )
+    
+    suggested_questions = Column(
+        JSON,
+        nullable=True,
+        doc="AI-suggested follow-up questions"
     )
     
     # Timestamps with server-side defaults for ACID compliance

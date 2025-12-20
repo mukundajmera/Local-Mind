@@ -231,6 +231,51 @@ class DocumentService:
         logger.warning(f"Document not found for status update: id={doc_id}")
         return False
     
+    async def update_document_briefing(
+        self,
+        doc_id: UUID,
+        summary: str,
+        topics: list[str],
+        suggested_questions: list[str],
+    ) -> bool:
+        """
+        Update document with AI-generated briefing metadata.
+        
+        Args:
+            doc_id: The document UUID.
+            summary: Generated summary text.
+            topics: List of key topics.
+            suggested_questions: List of suggested questions.
+            
+        Returns:
+            True if updated, False otherwise.
+        """
+        # Convert lists to JSON-compatible format (if DB doesn't support JSON, use json.dumps)
+        # SQLAlchemy JSON type handles serialization if supported, or we assume it is allowed.
+        # But wait, SQLite might not.
+        # Safest to just rely on SQLAlchemy JSON type we defined in models.
+        
+        values = {
+            "summary": summary,
+            "topics": topics,
+            "suggested_questions": suggested_questions,
+        }
+        
+        stmt = (
+            update(DocumentModel)
+            .where(DocumentModel.id == doc_id)
+            .values(**values)
+        )
+        
+        result = await self._session.execute(stmt)
+        
+        if result.rowcount > 0:
+            logger.info(f"Updated document briefing: id={doc_id}")
+            return True
+            
+        logger.warning(f"Document not found for briefing update: id={doc_id}")
+        return False
+    
     async def delete_document_record(self, doc_id: UUID) -> bool:
         """
         Delete a document record from the database.

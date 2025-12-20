@@ -235,32 +235,34 @@ class DocumentParser:
             Tuple of (extracted_text, metadata_dict)
             
         Note:
-            Uses `unstructured` library for parsing.
-            Install with: pip install unstructured[pdf]
+            Uses `pypdf` library for reliable parsing.
         """
         try:
-            from unstructured.partition.pdf import partition_pdf
+            import pypdf
             
-            # partition_pdf is sync, run in executor for async
+            def _read_pdf():
+                reader = pypdf.PdfReader(file_path)
+                text = ""
+                for page in reader.pages:
+                    extract = page.extract_text()
+                    if extract:
+                        text += extract + "\n\n"
+                return text, len(reader.pages)
+            
             import asyncio
             loop = asyncio.get_event_loop()
-            elements = await loop.run_in_executor(
-                None,
-                lambda: partition_pdf(str(file_path))
-            )
-            
-            # Combine all elements into text
-            text = "\n\n".join(str(el) for el in elements)
+            text, num_pages = await loop.run_in_executor(None, _read_pdf)
             
             metadata = {
-                "element_count": len(elements),
+                "element_count": num_pages,
                 "file_path": str(file_path),
+                "parser": "pypdf"
             }
             
             return text, metadata
             
         except ImportError:
-            logger.error("unstructured[pdf] not installed. Run: pip install unstructured[pdf]")
+            logger.error("pypdf not installed. Run: pip install pypdf")
             raise
         except Exception as e:
             logger.error(f"Failed to parse PDF {file_path}: {e}")
@@ -489,7 +491,7 @@ class IngestionPipeline:
             )
         
         logger.info(f"Fast ingestion complete: {doc.doc_id} ({len(chunks)} chunks)")
-        return doc
+        return doc, text
     
     async def _embed_chunks(self, chunks: list[TextChunk]) -> list[TextChunk]:
         """Add embeddings to chunks."""

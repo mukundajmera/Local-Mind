@@ -130,11 +130,17 @@ Guidelines:
                     
         except Exception as e:
             logger.error(f"Briefing generation failed for {doc_id}: {e}")
-            # Return a minimal briefing on error
+            # Fallback for when LLM is offline or fails: use text preview
+            summary_preview = truncated_text[:500].replace("\n", " ") + "..." if len(truncated_text) > 500 else truncated_text
+            
             return BriefingResponse(
-                summary="Briefing generation encountered an error.",
-                key_topics=["Error during processing"],
-                suggested_questions=["What is this document about?"],
+                summary=f"Automated summary unavailable (LLM service offline). Content preview: {summary_preview}",
+                key_topics=["Content Preview (LLM Offline)", "Manual Review Required"],
+                suggested_questions=[
+                    "What is the main purpose of this document?",
+                    "Who is the intended audience?",
+                    "What are the key takeaways?"
+                ],
                 doc_id=doc_id,
             )
     

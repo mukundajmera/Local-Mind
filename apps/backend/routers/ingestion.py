@@ -25,6 +25,8 @@ from config import get_settings
 from database.models import DocumentStatus
 from services.document_service import DocumentService
 from services.ingestion import IngestionPipeline
+from services.briefing_service import BriefingService
+from schemas import BriefingResponse
 import metrics as app_metrics
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,7 @@ async def _process_document_background(
         
         # Run ingestion pipeline
         async with IngestionPipeline() as pipeline:
-            await pipeline.ingest_document(file_path, project_id=project_id)
+            ingested_doc, full_text = await pipeline.ingest_document(file_path, project_id=project_id)
         
         duration = time.time() - start_time
         app_metrics.ingestion_duration_seconds.labels(file_type=file_type).observe(duration)
@@ -109,6 +111,26 @@ async def _process_document_background(
             f"Ingestion completed for doc_id={doc_id}, "
             f"duration={duration:.2f}s"
         )
+
+        # Trigger Briefing Agent
+        try:
+            logger.info(f"Triggering Briefing Agent for doc_id={doc_id}")
+            briefing_service = BriefingService()
+            briefing = await briefing_service.generate_briefing(str(doc_id), full_text)
+            
+            # Persist briefing to DB
+            async with DocumentService() as doc_service:
+                await doc_service.update_document_briefing(
+                    doc_id,
+                    summary=briefing.summary,
+                    topics=briefing.key_topics,
+                    suggested_questions=briefing.suggested_questions
+                )
+            logger.info(f"Briefing persisted for doc_id={doc_id}")
+            
+        except Exception as e:
+            logger.error(f"Briefing generation failed for {doc_id} (non-blocking): {e}")
+            # We don't fail the whole document if briefing fails, just log it.
         
     except Exception as e:
         # Update status: * → FAILED
@@ -288,4 +310,57 @@ async def get_document_status(doc_id: str):
         error_message=doc.error_message,
         created_at=doc.created_at.isoformat() if doc.created_at else "",
         updated_at=doc.updated_at.isoformat() if doc.updated_at else "",
+    )
+
+
+@router.get("/sources/{doc_id}/briefing", response_model=BriefingResponse)
+async def get_document_briefing(doc_id: str):
+    """
+    Get the AI-generated briefing for a document.
+    """
+    try:
+        doc_uuid = UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    async with DocumentService() as doc_service:
+        doc = await doc_service.get_document_by_id(doc_uuid)
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    if not doc.summary:
+        # If no summary in DB, try in-memory cache as fallback (legacy)
+        # Or return 404/Processing
+        raise HTTPException(status_code=404, detail="Briefing not found (might be processing)")
+
+    # Construct response from DB columns
+    # JSON columns are already deserialized by SQLAlchemy if defined as JSON
+    # But if sqlite stores them as string, we might need json.loads IF SQLAlchemy didn't handle it.
+    
+    # We defined them as JSON type in models.py, so SQLAlchemy should return python objects (lists).
+    # However, if using SQLite without specific support, it might return strings?
+    # Let's handle both.
+    import json
+    
+    topics = doc.topics
+    if isinstance(topics, str):
+        try:
+            topics = json.loads(topics)
+        except:
+            topics = []
+            
+    questions = doc.suggested_questions
+    if isinstance(questions, str):
+        try:
+            questions = json.loads(questions)
+        except:
+            questions = []
+
+    return BriefingResponse(
+        doc_id=str(doc.id),
+        summary=doc.summary,
+        key_topics=topics or [],
+        suggested_questions=questions or [],
+        generated_at=doc.updated_at or datetime.utcnow()
     )

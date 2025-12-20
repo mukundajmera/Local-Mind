@@ -33,13 +33,18 @@ export function SourcesSidebar() {
     // Track active polling cleanup functions
     const pollingCleanups = useRef<Map<string, () => void>>(new Map());
 
-    // Handle upload complete - start polling for status
+    // Handle upload complete - start polling for status AND refresh list
     const handleUploadComplete = (docId?: string) => {
+        // 1. Refresh the list so the new item (Pending) appears
+        fetchSources();
+
+        // 2. Start polling for status updates (so spinner moves to Ready)
         if (docId) {
-            // Start polling for this document
             const cleanup = pollDocumentStatus(docId, () => {
                 // Cleanup when polling completes
                 pollingCleanups.current.delete(docId);
+                // Refresh again when done to ensure final state is synced
+                fetchSources();
             });
             pollingCleanups.current.set(docId, cleanup);
         }
@@ -178,7 +183,7 @@ export function SourcesSidebar() {
 
             {/* Upload Area */}
             <div className="px-3 mb-4">
-                <Upload onUploadComplete={fetchSources} />
+                <Upload onUploadComplete={handleUploadComplete} />
             </div>
 
             {/* Selection hint */}

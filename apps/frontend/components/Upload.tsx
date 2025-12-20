@@ -126,11 +126,14 @@ export function Upload({ onUploadComplete }: UploadProps) {
 
             {!file ? (
                 <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full h-24 border-2 border-dashed border-glass rounded-xl flex flex-col items-center justify-center gap-2 hover:border-cyber-blue/50 hover:bg-glass-100 transition-all group"
+                    onClick={() => currentProjectId && fileInputRef.current?.click()}
+                    disabled={!currentProjectId}
+                    className={`w-full h-24 border-2 border-dashed border-glass rounded-xl flex flex-col items-center justify-center gap-2 transition-all group ${!currentProjectId ? 'opacity-50 cursor-not-allowed' : 'hover:border-cyber-blue/50 hover:bg-glass-100'}`}
                 >
-                    <UploadCloud className="w-8 h-8 text-cyber-blue/50 group-hover:text-cyber-blue transition-colors" />
-                    <span className="text-sm theme-text-muted">Click to upload PDF/TXT</span>
+                    <UploadCloud className={`w-8 h-8 transition-colors ${!currentProjectId ? 'text-gray-500' : 'text-cyber-blue/50 group-hover:text-cyber-blue'}`} />
+                    <span className="text-sm theme-text-muted">
+                        {!currentProjectId ? "Select a project to upload" : "Click to upload PDF/TXT"}
+                    </span>
                 </button>
             ) : (
                 <div className="bg-glass-100 rounded-xl p-3 border border-glass relative overflow-hidden">

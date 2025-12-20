@@ -7,6 +7,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { API_BASE_URL } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const PROMPT_SUGGESTIONS = [
     {
@@ -117,7 +119,7 @@ export function ChatPanel() {
                 body: JSON.stringify({
                     message: contentToSend,
                     source_ids: selectedSourceIds.length > 0 ? selectedSourceIds : null,
-                    strategies: ["sources"],
+                    strategies: selectedSourceIds.length > 0 ? ["sources"] : [],
                 }),
             });
 
@@ -235,7 +237,15 @@ export function ChatPanel() {
                                 : "message-bubble-ai"
                                 }`}
                         >
-                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                            {message.role === "assistant" ? (
+                                <div className="text-sm prose prose-invert prose-sm max-w-none">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {message.content}
+                                    </ReactMarkdown>
+                                </div>
+                            ) : (
+                                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                            )}
                             <div className="flex items-center justify-between mt-2">
                                 <span className="text-xs theme-text-faint">
                                     {message.timestamp ? (
