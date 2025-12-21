@@ -87,6 +87,25 @@ export function SourcesSidebar() {
         fetchSources();
     }, [fetchSources]);
 
+    // Auto-restart polling for sources that are still processing (fixes lost polling on refresh)
+    useEffect(() => {
+        if (sources.length === 0) return;
+
+        sources.forEach(source => {
+            // If source is pending/processing and not already being polled, start polling
+            const isProcessing = source.status === "pending" || source.status === "processing";
+            const isAlreadyPolling = pollingCleanups.current.has(source.id);
+
+            if (isProcessing && !isAlreadyPolling) {
+                const cleanup = pollDocumentStatus(source.id, () => {
+                    pollingCleanups.current.delete(source.id);
+                    fetchSources(); // Refresh when done
+                });
+                pollingCleanups.current.set(source.id, cleanup);
+            }
+        });
+    }, [sources, pollDocumentStatus, fetchSources]);
+
     // Handle clicking source title to view summary
     const handleViewSource = async (sourceId: string) => {
         setActiveSource(sourceId);

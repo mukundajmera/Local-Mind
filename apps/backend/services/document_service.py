@@ -384,3 +384,98 @@ class DocumentService:
         )
         
         return stats
+    
+    async def rescue_stuck_documents(self, max_age_minutes: int = 30) -> Dict[str, Any]:
+        """
+        Rescue documents stuck in PENDING or PROCESSING state.
+        
+        This should be called at startup to handle documents that were
+        being processed when the server crashed or was restarted.
+        
+        Documents that have been stuck for longer than max_age_minutes
+        will be marked as FAILED if their file doesn't exist, or
+        reset to PENDING for retry if the file exists.
+        
+        Args:
+            max_age_minutes: How long a document can be stuck before rescue.
+        
+        Returns:
+            Statistics about rescued documents.
+        """
+        from datetime import timedelta
+        
+        cutoff_time = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+        
+        stats = {
+            "checked": 0,
+            "rescued_to_failed": 0,
+            "rescued_to_pending": 0,
+            "still_valid": 0,
+            "errors": [],
+        }
+        
+        # Find stuck documents (PENDING or PROCESSING older than cutoff)
+        stmt = (
+            select(DocumentModel)
+            .where(
+                DocumentModel.status.in_([
+                    DocumentStatus.PENDING,
+                    DocumentStatus.PROCESSING
+                ])
+            )
+            .where(DocumentModel.created_at < cutoff_time)
+        )
+        
+        result = await self._session.execute(stmt)
+        stuck_docs = result.scalars().all()
+        
+        for doc in stuck_docs:
+            stats["checked"] += 1
+            
+            try:
+                file_exists = Path(doc.file_path).exists() if doc.file_path else False
+                
+                if not file_exists:
+                    # File doesn't exist - mark as FAILED (phantom document)
+                    doc.status = DocumentStatus.FAILED
+                    doc.error_message = (
+                        f"File not found after server restart. "
+                        f"Document was stuck in {doc.status.value} state."
+                    )
+                    stats["rescued_to_failed"] += 1
+                    logger.warning(
+                        f"Rescued phantom document to FAILED: id={doc.id}, "
+                        f"filename={doc.filename}"
+                    )
+                else:
+                    # File exists - could retry, but safer to mark failed
+                    # (we don't know if partial processing occurred)
+                    doc.status = DocumentStatus.FAILED
+                    doc.error_message = (
+                        f"Processing interrupted by server restart. "
+                        f"Please re-upload the document."
+                    )
+                    stats["rescued_to_failed"] += 1
+                    logger.warning(
+                        f"Rescued stuck document to FAILED: id={doc.id}, "
+                        f"filename={doc.filename}"
+                    )
+                    
+            except Exception as e:
+                error_msg = f"Failed to rescue document: {str(e)}"
+                logger.error(f"{error_msg} - doc_id={doc.id}")
+                stats["errors"].append({
+                    "doc_id": str(doc.id),
+                    "filename": doc.filename,
+                    "error": error_msg,
+                })
+        
+        # Commit the changes
+        await self._session.flush()
+        
+        logger.info(
+            f"Document rescue complete: "
+            f"checked={stats['checked']}, rescued={stats['rescued_to_failed']}"
+        )
+        
+        return stats

@@ -11,7 +11,7 @@ interface Source {
     title: string;
     filename: string;
     uploaded_at: string;
-    status: "ready" | "processing";
+    status: "pending" | "processing" | "ready" | "failed";
     chunk_count?: number;
 }
 

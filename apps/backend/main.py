@@ -367,6 +367,22 @@ async def startup_event():
     except Exception as e:
         logger.error("Failed to initialize ModelManager", error=str(e), exc_info=True)
         print(f"⚠️  ModelManager initialization failed: {e}", file=sys.stderr)
+    
+    # 5. Rescue stuck documents (handle crashes during processing)
+    try:
+        from services.document_service import DocumentService
+        async with DocumentService() as doc_service:
+            rescue_stats = await doc_service.rescue_stuck_documents(max_age_minutes=5)
+            if rescue_stats["checked"] > 0:
+                logger.warning(
+                    f"Rescued {rescue_stats['rescued_to_failed']} stuck documents",
+                    stats=rescue_stats
+                )
+            else:
+                logger.info("No stuck documents found during startup rescue")
+    except Exception as e:
+        logger.error("Document rescue failed", error=str(e), exc_info=True)
+        print(f"⚠️  Document rescue failed: {e}", file=sys.stderr)
 
 
 @app.on_event("shutdown")

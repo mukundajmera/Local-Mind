@@ -240,10 +240,15 @@ async def upload_source(
             f"filename={file.filename}, status=PENDING"
         )
         
-        # 4. Write file to disk
+        # 4. Write file to disk (using threadpool to avoid blocking event loop)
         try:
-            with open(file_path, "wb") as dest:
-                shutil.copyfileobj(file.file, dest)
+            from fastapi.concurrency import run_in_threadpool
+            
+            def _write_file_sync():
+                with open(file_path, "wb") as dest:
+                    shutil.copyfileobj(file.file, dest)
+            
+            await run_in_threadpool(_write_file_sync)
         except Exception as e:
             # If file write fails, mark DB record as FAILED
             async with DocumentService() as doc_service:

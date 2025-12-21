@@ -55,17 +55,7 @@ async def create_project(request: ProjectCreate):
     session = await get_db_session()
     try:
         from uuid import uuid4
-        
-        # Check if project name already exists
-        stmt = select(Project).where(Project.name == request.name)
-        result = await session.execute(stmt)
-        existing = result.scalar_one_or_none()
-        
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Project with name '{request.name}' already exists"
-            )
+        from sqlalchemy.exc import IntegrityError
         
         project_id = uuid4()
         now = datetime.utcnow()
@@ -79,7 +69,17 @@ async def create_project(request: ProjectCreate):
         )
         
         session.add(project)
-        await session.commit()
+        
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Unique constraint violation - project name already exists
+            await session.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Project with name '{request.name}' already exists"
+            )
+        
         await session.refresh(project)
         
         logger.info(f"Project created: {project_id} - {request.name}")
@@ -94,7 +94,6 @@ async def create_project(request: ProjectCreate):
         )
         
     except HTTPException:
-        await session.rollback()
         raise
     except Exception as e:
         await session.rollback()
@@ -121,24 +120,30 @@ async def list_projects():
         result = await session.execute(stmt)
         projects = result.scalars().all()
         
+        # Get document counts for ALL projects in a single query (fixes N+1 problem)
+        from sqlalchemy import case
+        count_stmt = (
+            select(
+                DocumentModel.project_id,
+                func.count(DocumentModel.id).label("doc_count")
+            )
+            .where(DocumentModel.status != DocumentStatus.FAILED)
+            .group_by(DocumentModel.project_id)
+        )
+        count_result = await session.execute(count_stmt)
+        
+        # Build a lookup dict: project_id -> count
+        doc_counts = {row.project_id: row.doc_count for row in count_result.fetchall()}
+        
         responses = []
         for project in projects:
-            # Count documents for this project from documents table
-            count_stmt = (
-                select(func.count(DocumentModel.id))
-                .where(DocumentModel.project_id == project.project_id)
-                .where(DocumentModel.status != DocumentStatus.FAILED)
-            )
-            count_result = await session.execute(count_stmt)
-            doc_count = count_result.scalar() or 0
-            
             responses.append(ProjectResponse(
                 project_id=project.project_id,
                 name=project.name,
                 description=project.description,
                 created_at=project.created_at,
                 updated_at=project.updated_at,
-                document_count=doc_count
+                document_count=doc_counts.get(project.project_id, 0)
             ))
         
         return responses
