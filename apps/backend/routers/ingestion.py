@@ -14,6 +14,7 @@ Implements the Write-Ahead Log pattern:
 import logging
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from uuid import UUID, uuid4
@@ -192,8 +193,21 @@ async def upload_source(
     upload_path = Path(settings.upload_dir)
     upload_path.mkdir(parents=True, exist_ok=True)
     
-    # Parse project_id if provided
-    pid = UUID(project_id) if project_id else None
+    # Validate project_id is provided (Bug #4 fix)
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="project_id is required. Please select a project before uploading."
+        )
+    
+    # Parse project_id
+    try:
+        pid = UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid project_id format. Expected a valid UUID."
+        )
     
     # 1. Generate UUID
     doc_id = uuid4()

@@ -93,13 +93,40 @@ export function ProjectSelector() {
                                     ? "bg-cyber-blue/20 text-cyber-blue"
                                     : "text-gray-300 hover:bg-white/5"
                                     }`}
-                                onClick={() => {
-                                    setCurrentProject(project.project_id);
-                                    setIsOpen(false);
-                                }}
                             >
-                                <span className="truncate">{project.name}</span>
-                                <span className="text-xs opacity-50">{project.document_count}</span>
+                                <div
+                                    className="flex-1 flex items-center gap-2 min-w-0"
+                                    onClick={() => {
+                                        setCurrentProject(project.project_id);
+                                        setIsOpen(false);
+                                    }}
+                                >
+                                    <span className="truncate">{project.name}</span>
+                                    <span className="text-xs opacity-50">{project.document_count}</span>
+                                </div>
+                                <button
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+                                        try {
+                                            const res = await fetch(`${API_BASE_URL}/api/v1/projects/${project.project_id}`, {
+                                                method: "DELETE"
+                                            });
+                                            if (res.ok) {
+                                                setProjects(projects.filter(p => p.project_id !== project.project_id));
+                                                if (currentProjectId === project.project_id) {
+                                                    setCurrentProject(null);
+                                                }
+                                            }
+                                        } catch (err) {
+                                            console.error("Failed to delete project:", err);
+                                        }
+                                    }}
+                                    className="p-1 rounded opacity-50 hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
+                                    title="Delete project"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </button>
                             </div>
                         ))}
                     </div>

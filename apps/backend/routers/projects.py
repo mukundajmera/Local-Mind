@@ -2,22 +2,47 @@
 Projects Router
 ===============
 API endpoints for project management (multi-tenancy).
+Uses SQLAlchemy for database persistence.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from logging_config import get_logger
-from models.project import ProjectCreate, ProjectResponse, ProjectDocumentResponse
+from models.project import ProjectCreate, ProjectResponse, Project, Base
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from database.models import DocumentModel, DocumentStatus
+import os
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
-# In-memory storage for now (replace with actual database in production)
-# This is a simplified implementation for demonstration
-_projects_store: dict[UUID, dict] = {}
-_project_documents_store: dict[UUID, list[str]] = {}
+# Database connection setup
+_engine = None
+_session_factory = None
+
+
+async def get_db_session() -> AsyncSession:
+    """Get a database session."""
+    global _engine, _session_factory
+    
+    if _engine is None:
+        db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/localmind.db")
+        _engine = create_async_engine(db_url, echo=False)
+        _session_factory = async_sessionmaker(
+            _engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        
+        # Ensure tables exist
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    
+    return _session_factory()
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -27,45 +52,59 @@ async def create_project(request: ProjectCreate):
     
     Projects provide isolated workspaces for documents.
     """
+    session = await get_db_session()
     try:
-        from datetime import datetime
         from uuid import uuid4
         
         # Check if project name already exists
-        for project in _projects_store.values():
-            if project["name"] == request.name:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Project with name '{request.name}' already exists"
-                )
+        stmt = select(Project).where(Project.name == request.name)
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Project with name '{request.name}' already exists"
+            )
         
         project_id = uuid4()
         now = datetime.utcnow()
         
-        project_data = {
-            "project_id": project_id,
-            "name": request.name,
-            "description": request.description,
-            "created_at": now,
-            "updated_at": now,
-            "document_count": 0
-        }
+        project = Project(
+            project_id=project_id,
+            name=request.name,
+            description=request.description,
+            created_at=now,
+            updated_at=now,
+        )
         
-        _projects_store[project_id] = project_data
-        _project_documents_store[project_id] = []
+        session.add(project)
+        await session.commit()
+        await session.refresh(project)
         
         logger.info(f"Project created: {project_id} - {request.name}")
         
-        return ProjectResponse(**project_data)
+        return ProjectResponse(
+            project_id=project.project_id,
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            document_count=0
+        )
         
     except HTTPException:
+        await session.rollback()
         raise
     except Exception as e:
+        await session.rollback()
         logger.error(f"Failed to create project: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create project: {str(e)}"
         )
+    finally:
+        await session.close()
 
 
 @router.get("", response_model=List[ProjectResponse])
@@ -75,19 +114,34 @@ async def list_projects():
     
     Returns all projects with their metadata and document counts.
     """
+    session = await get_db_session()
     try:
-        projects = []
-        for project_data in _projects_store.values():
-            project_id = project_data["project_id"]
-            doc_count = len(_project_documents_store.get(project_id, []))
-            
-            project_response = {
-                **project_data,
-                "document_count": doc_count
-            }
-            projects.append(ProjectResponse(**project_response))
+        # Get all projects
+        stmt = select(Project)
+        result = await session.execute(stmt)
+        projects = result.scalars().all()
         
-        return projects
+        responses = []
+        for project in projects:
+            # Count documents for this project from documents table
+            count_stmt = (
+                select(func.count(DocumentModel.id))
+                .where(DocumentModel.project_id == project.project_id)
+                .where(DocumentModel.status != DocumentStatus.FAILED)
+            )
+            count_result = await session.execute(count_stmt)
+            doc_count = count_result.scalar() or 0
+            
+            responses.append(ProjectResponse(
+                project_id=project.project_id,
+                name=project.name,
+                description=project.description,
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+                document_count=doc_count
+            ))
+        
+        return responses
         
     except Exception as e:
         logger.error(f"Failed to list projects: {e}", exc_info=True)
@@ -95,6 +149,8 @@ async def list_projects():
             status_code=500,
             detail=f"Failed to list projects: {str(e)}"
         )
+    finally:
+        await session.close()
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -104,22 +160,35 @@ async def get_project(project_id: UUID):
     
     Returns project metadata and document count.
     """
+    session = await get_db_session()
     try:
-        if project_id not in _projects_store:
+        stmt = select(Project).where(Project.project_id == project_id)
+        result = await session.execute(stmt)
+        project = result.scalar_one_or_none()
+        
+        if not project:
             raise HTTPException(
                 status_code=404,
                 detail=f"Project {project_id} not found"
             )
         
-        project_data = _projects_store[project_id]
-        doc_count = len(_project_documents_store.get(project_id, []))
+        # Count documents for this project
+        count_stmt = (
+            select(func.count(DocumentModel.id))
+            .where(DocumentModel.project_id == project_id)
+            .where(DocumentModel.status != DocumentStatus.FAILED)
+        )
+        count_result = await session.execute(count_stmt)
+        doc_count = count_result.scalar() or 0
         
-        project_response = {
-            **project_data,
-            "document_count": doc_count
-        }
-        
-        return ProjectResponse(**project_response)
+        return ProjectResponse(
+            project_id=project.project_id,
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            document_count=doc_count
+        )
         
     except HTTPException:
         raise
@@ -129,6 +198,8 @@ async def get_project(project_id: UUID):
             status_code=500,
             detail=f"Failed to get project: {str(e)}"
         )
+    finally:
+        await session.close()
 
 
 @router.delete("/{project_id}")
@@ -139,19 +210,23 @@ async def delete_project(project_id: UUID):
     **Warning**: This does not delete the actual documents from Milvus,
     only the project-document associations.
     """
+    session = await get_db_session()
     try:
-        if project_id not in _projects_store:
+        stmt = select(Project).where(Project.project_id == project_id)
+        result = await session.execute(stmt)
+        project = result.scalar_one_or_none()
+        
+        if not project:
             raise HTTPException(
                 status_code=404,
                 detail=f"Project {project_id} not found"
             )
         
-        project_name = _projects_store[project_id]["name"]
+        project_name = project.name
         
-        # Remove project and its document associations
-        del _projects_store[project_id]
-        if project_id in _project_documents_store:
-            del _project_documents_store[project_id]
+        # Delete project (cascade will handle related documents)
+        await session.delete(project)
+        await session.commit()
         
         logger.info(f"Project deleted: {project_id} - {project_name}")
         
@@ -162,13 +237,17 @@ async def delete_project(project_id: UUID):
         }
         
     except HTTPException:
+        await session.rollback()
         raise
     except Exception as e:
+        await session.rollback()
         logger.error(f"Failed to delete project {project_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to delete project: {str(e)}"
         )
+    finally:
+        await session.close()
 
 
 @router.get("/{project_id}/documents", response_model=List[str])
@@ -178,14 +257,27 @@ async def get_project_documents(project_id: UUID):
     
     Returns a list of document IDs belonging to the specified project.
     """
+    session = await get_db_session()
     try:
-        if project_id not in _projects_store:
+        # Check project exists
+        proj_stmt = select(Project).where(Project.project_id == project_id)
+        proj_result = await session.execute(proj_stmt)
+        project = proj_result.scalar_one_or_none()
+        
+        if not project:
             raise HTTPException(
                 status_code=404,
                 detail=f"Project {project_id} not found"
             )
         
-        doc_ids = _project_documents_store.get(project_id, [])
+        # Get document IDs
+        doc_stmt = (
+            select(DocumentModel.id)
+            .where(DocumentModel.project_id == project_id)
+            .where(DocumentModel.status != DocumentStatus.FAILED)
+        )
+        doc_result = await session.execute(doc_stmt)
+        doc_ids = [str(row[0]) for row in doc_result.fetchall()]
         
         return doc_ids
         
@@ -197,6 +289,8 @@ async def get_project_documents(project_id: UUID):
             status_code=500,
             detail=f"Failed to get project documents: {str(e)}"
         )
+    finally:
+        await session.close()
 
 
 @router.post("/{project_id}/documents/{doc_id}")
@@ -204,20 +298,36 @@ async def add_document_to_project(project_id: UUID, doc_id: str):
     """
     Associate a document with a project.
     
-    This creates the project-document link for isolation.
+    This endpoint is deprecated - documents are now associated with projects
+    during upload via the project_id parameter.
     """
+    session = await get_db_session()
     try:
-        if project_id not in _projects_store:
+        # Check project exists
+        proj_stmt = select(Project).where(Project.project_id == project_id)
+        proj_result = await session.execute(proj_stmt)
+        project = proj_result.scalar_one_or_none()
+        
+        if not project:
             raise HTTPException(
                 status_code=404,
                 detail=f"Project {project_id} not found"
             )
         
-        if project_id not in _project_documents_store:
-            _project_documents_store[project_id] = []
+        # Update document's project_id if document exists
+        from uuid import UUID as UUIDType
+        try:
+            doc_uuid = UUIDType(doc_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid document ID format")
         
-        if doc_id not in _project_documents_store[project_id]:
-            _project_documents_store[project_id].append(doc_id)
+        doc_stmt = select(DocumentModel).where(DocumentModel.id == doc_uuid)
+        doc_result = await session.execute(doc_stmt)
+        doc = doc_result.scalar_one_or_none()
+        
+        if doc:
+            doc.project_id = project_id
+            await session.commit()
             logger.info(f"Document {doc_id} added to project {project_id}")
         
         return {
@@ -228,10 +338,14 @@ async def add_document_to_project(project_id: UUID, doc_id: str):
         }
         
     except HTTPException:
+        await session.rollback()
         raise
     except Exception as e:
+        await session.rollback()
         logger.error(f"Failed to add document to project: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to add document to project: {str(e)}"
         )
+    finally:
+        await session.close()

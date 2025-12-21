@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
     return (
         <html lang="en" className="dark">
-            <body className="mesh-gradient h-screen overflow-hidden antialiased">
+            <body className="mesh-gradient h-screen overflow-hidden antialiased" suppressHydrationWarning>
                 {/* Main workspace container */}
                 <div className="h-full w-full p-4">
                     {children}

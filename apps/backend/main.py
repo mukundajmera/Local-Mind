@@ -415,16 +415,45 @@ async def list_sources(project_id: Optional[str] = None):
 @app.delete("/api/v1/sources/{doc_id}")
 async def delete_source(doc_id: str):
     """
-    Delete a document source and its associated data from Milvus.
+    Delete a document source and its associated data from Milvus and database.
     
-    Removes the document and all chunks from the vector store.
+    Removes the document and all chunks from the vector store and the document
+    record from the database.
     """
     try:
         from services.ingestion import IngestionPipeline
-        async with IngestionPipeline() as pipeline:
-            result = await pipeline.delete_document(doc_id)
+        from services.document_service import DocumentService
+        from uuid import UUID as UUIDType
         
-        if not result.get("found", True):
+        result = {}
+        
+        # Try to delete from Milvus first
+        try:
+            async with IngestionPipeline() as pipeline:
+                milvus_result = await pipeline.delete_document(doc_id)
+                result.update(milvus_result)
+        except Exception as milvus_err:
+            logger.warning(f"Milvus deletion failed for {doc_id}: {milvus_err}")
+            result["milvus_error"] = str(milvus_err)
+        
+        # Always try to delete from documents table (Bug #3 fix)
+        db_deleted = False
+        try:
+            doc_uuid = UUIDType(doc_id)
+            async with DocumentService() as doc_service:
+                db_deleted = await doc_service.delete_document_record(doc_uuid)
+                result["db_deleted"] = db_deleted
+                if db_deleted:
+                    logger.info(f"Deleted document record from DB: {doc_id}")
+        except ValueError:
+            logger.warning(f"Invalid UUID format for DB deletion: {doc_id}")
+            result["db_deleted"] = False
+        except Exception as db_err:
+            logger.error(f"Failed to delete from DB: {db_err}")
+            result["db_deleted"] = False
+        
+        # Only return 404 if document was not found in EITHER Milvus OR DB
+        if not result.get("found", False) and not db_deleted:
             raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
         
         return {"status": "success", **result}
