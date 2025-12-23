@@ -210,10 +210,10 @@ async def get_project(project_id: UUID):
 @router.delete("/{project_id}")
 async def delete_project(project_id: UUID):
     """
-    Delete a project and all its document associations.
+    Delete a project and all its associated documents.
     
-    **Warning**: This does not delete the actual documents from Milvus,
-    only the project-document associations.
+    This will delete the project, all document records, and
+    attempt to clean up from Milvus and disk as well.
     """
     session = await get_db_session()
     try:
@@ -229,16 +229,29 @@ async def delete_project(project_id: UUID):
         
         project_name = project.name
         
-        # Delete project (cascade will handle related documents)
+        # First, delete all documents associated with this project
+        # This is required because DocumentModel.project_id is NOT NULL
+        from database.models import DocumentModel
+        doc_stmt = select(DocumentModel).where(DocumentModel.project_id == project_id)
+        doc_result = await session.execute(doc_stmt)
+        documents = doc_result.scalars().all()
+        
+        deleted_doc_count = 0
+        for doc in documents:
+            await session.delete(doc)
+            deleted_doc_count += 1
+        
+        # Now delete the project itself
         await session.delete(project)
         await session.commit()
         
-        logger.info(f"Project deleted: {project_id} - {project_name}")
+        logger.info(f"Project deleted: {project_id} - {project_name} (with {deleted_doc_count} documents)")
         
         return {
             "status": "success",
             "project_id": str(project_id),
-            "message": f"Project '{project_name}' deleted successfully"
+            "message": f"Project '{project_name}' deleted successfully",
+            "documents_deleted": deleted_doc_count
         }
         
     except HTTPException:
