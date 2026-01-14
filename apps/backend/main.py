@@ -406,19 +406,48 @@ async def shutdown_event():
 @app.get("/api/v1/sources")
 async def list_sources(project_id: Optional[str] = None):
     """
-    List all ingested sources from Milvus.
+    List all ingested sources from the database.
+    
+    Uses the database (SQLite) as source of truth for document listing,
+    ensuring sources are visible even when Milvus is unavailable.
     
     Args:
         project_id: Optional Project ID to filter sources
     """
     try:
-        from services.ingestion import IngestionPipeline
+        from services.document_service import DocumentService
+        from database.models import DocumentModel
+        from sqlalchemy import select
         
         # Parse project_id if provided
         pid = uuid.UUID(project_id) if project_id else None
         
-        async with IngestionPipeline() as pipeline:
-            sources = await pipeline.get_all_sources(project_id=pid)
+        async with DocumentService() as doc_service:
+            if pid:
+                # Use existing method for project-filtered query
+                docs = await doc_service.get_project_documents(pid, include_failed=False)
+            else:
+                # Query all documents across all projects
+                stmt = (
+                    select(DocumentModel)
+                    .order_by(DocumentModel.created_at.desc())
+                )
+                result = await doc_service._session.execute(stmt)
+                docs = list(result.scalars().all())
+            
+            # Transform to API response format (matches frontend expectations)
+            sources = [
+                {
+                    "id": str(doc.id),
+                    "title": doc.filename,
+                    "filename": doc.filename,
+                    "uploaded_at": doc.created_at.isoformat() if doc.created_at else "",
+                    "status": doc.status.value if doc.status else "pending",
+                    "chunk_count": 0,  # Not tracked in DB
+                }
+                for doc in docs
+            ]
+        
         return {"sources": sources}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid project_id format")
