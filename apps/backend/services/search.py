@@ -125,25 +125,27 @@ class HybridRetriever:
             
             # SECURITY CRITICAL: Apply project_id filter for multi-tenancy
             if project_id:
-                # Validate project_id format to prevent injection
-                if re.match(r'^[a-zA-Z0-9\-]+$', str(project_id)):
+                # Validate project_id is a valid UUID format to prevent injection
+                # UUIDs are exactly 36 chars: 8-4-4-4-12 hex digits with hyphens
+                uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                if re.match(uuid_pattern, str(project_id)):
                     filter_parts.append(f'project_id == "{project_id}"')
                     logger.debug(f"Applying project_id filter: {project_id}")
                 else:
-                    logger.warning(f"Invalid project_id format rejected: {project_id}")
+                    logger.warning(f"Invalid project_id format rejected (expected UUID): {project_id}")
             
             # Build filter expression if source_ids provided
             if source_ids:
-                # Validate source_ids are valid UUIDs or strings (basic validation)
+                # Validate source_ids are valid UUIDs (strict validation)
                 # Milvus filter syntax: doc_id in ["id1", "id2", ...]
-                # Use proper escaping to prevent injection
+                uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                 validated_ids = []
                 for sid in source_ids:
-                    # Allow UUID format and alphanumeric with hyphens
-                    if re.match(r'^[a-zA-Z0-9\-]+$', str(sid)):
+                    # Only allow valid UUID format
+                    if re.match(uuid_pattern, str(sid)):
                         validated_ids.append(str(sid))
                     else:
-                        logger.warning(f"Skipping invalid source_id: {sid}")
+                        logger.warning(f"Skipping invalid source_id (expected UUID): {sid}")
                 
                 if validated_ids:
                     escaped_ids = [f'"{sid}"' for sid in validated_ids]
@@ -160,7 +162,7 @@ class HybridRetriever:
                 data=[query_embedding],
                 anns_field="vector",
                 limit=limit,
-                output_fields=["id", "doc_id", "text", "project_id"],
+                output_fields=["id", "doc_id", "text"],
                 filter=filter_expr,
             )
             

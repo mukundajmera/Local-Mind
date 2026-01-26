@@ -6,10 +6,12 @@ Red Team style tests to verify that the search service properly isolates
 projects when `project_id` is provided.
 
 These tests are CRITICAL for multi-tenancy security.
+
+Note: Backend path is added to sys.path in tests/conftest.py
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 from uuid import uuid4
 
 # Mark all tests in this module as security tests
@@ -33,12 +35,7 @@ class TestSearchProjectIsolation:
         
         This is the CORE security test for multi-tenancy.
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from services.search import HybridRetriever
-        from config import Settings
         
         # Create mock Milvus client
         mock_milvus = MagicMock()
@@ -48,7 +45,7 @@ class TestSearchProjectIsolation:
         mock_embedding = AsyncMock()
         mock_embedding.embed_text.return_value = [0.1] * 384
         
-        # Test project ID
+        # Test project ID (valid UUID format)
         test_project_id = str(uuid4())
         
         # Create retriever with mocks
@@ -80,10 +77,6 @@ class TestSearchProjectIsolation:
         
         This allows global searches when explicitly requested.
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from services.search import HybridRetriever
         
         # Create mock Milvus client
@@ -126,10 +119,6 @@ class TestSearchProjectIsolation:
         - Path traversal
         - Special characters
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from services.search import HybridRetriever
         
         # Create mock Milvus client
@@ -145,7 +134,7 @@ class TestSearchProjectIsolation:
         retriever._milvus_client = mock_milvus
         retriever.embedding_service = mock_embedding
         
-        # Malicious project_id values
+        # Malicious project_id values (none of these are valid UUIDs)
         malicious_ids = [
             '"; DROP TABLE chunks; --',  # SQL injection
             '../../../etc/passwd',  # Path traversal
@@ -168,13 +157,12 @@ class TestSearchProjectIsolation:
             call_kwargs = mock_milvus.search.call_args.kwargs
             filter_expr = call_kwargs.get("filter")
             
-            # CRITICAL: Malicious strings should NOT appear in filter verbatim
-            # The validation should either reject them or sanitize
-            if filter_expr:
-                # The filter should NOT contain the raw malicious string
-                # It should be rejected/sanitized
-                assert malicious_id not in filter_expr or "project_id ==" not in filter_expr, \
-                    f"SECURITY VIOLATION: Malicious input '{malicious_id}' not sanitized in filter!"
+            # CRITICAL: Malicious strings should NOT appear in filter at all
+            # The validation should reject non-UUID inputs entirely
+            if filter_expr and "project_id ==" in filter_expr:
+                # If there's a project_id filter, it should NOT contain the malicious input
+                assert malicious_id not in filter_expr, \
+                    f"SECURITY VIOLATION: Malicious input '{malicious_id}' was not rejected!"
     
     @pytest.mark.asyncio
     async def test_search_with_source_ids_and_project_id(self):
@@ -183,10 +171,6 @@ class TestSearchProjectIsolation:
         
         This tests the compound filter logic.
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from services.search import HybridRetriever
         
         # Create mock Milvus client
@@ -197,7 +181,7 @@ class TestSearchProjectIsolation:
         mock_embedding = AsyncMock()
         mock_embedding.embed_text.return_value = [0.1] * 384
         
-        # Test values
+        # Test values (valid UUID format)
         test_project_id = str(uuid4())
         test_source_ids = [str(uuid4()), str(uuid4())]
         
@@ -238,10 +222,6 @@ class TestChatEndpointProjectIsolation:
         """
         Verify that chat endpoint extracts and passes project_id to retriever.
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from schemas import ChatRequest
         
         # Create chat request with project_id
@@ -264,10 +244,6 @@ class TestChatEndpointProjectIsolation:
         """
         Verify that ChatRequest only accepts valid UUID for project_id.
         """
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps" / "backend"))
-        
         from schemas import ChatRequest
         from pydantic import ValidationError
         
