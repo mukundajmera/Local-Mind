@@ -58,6 +58,7 @@ class HybridRetriever:
         vector_weight: float = 1.0,
         graph_weight: float = 0.0,  # Kept for API compatibility
         source_ids: Optional[list[str]] = None,
+        project_id: Optional[str] = None,
     ) -> HybridSearchResponse:
         """
         Perform vector search for semantically similar chunks.
@@ -68,15 +69,19 @@ class HybridRetriever:
             vector_weight: Weight for vector results (default 1.0)
             graph_weight: Deprecated, kept for API compatibility
             source_ids: Optional list of document IDs to filter search
+            project_id: Optional project ID for multi-tenancy isolation (SECURITY CRITICAL)
             
         Returns:
             HybridSearchResponse with ranked results
         """
         filter_msg = f" (filtered to {len(source_ids)} sources)" if source_ids else ""
-        logger.info(f"Vector search: '{query[:50]}...' k={k}{filter_msg}")
+        project_msg = f" (project: {project_id})" if project_id else ""
+        logger.info(f"Vector search: '{query[:50]}...' k={k}{filter_msg}{project_msg}")
         
-        # Vector search
-        vector_results = await self._vector_search(query, limit=k, source_ids=source_ids)
+        # Vector search with project_id filtering for security isolation
+        vector_results = await self._vector_search(
+            query, limit=k, source_ids=source_ids, project_id=project_id
+        )
         
         return HybridSearchResponse(
             query=query,
@@ -91,42 +96,65 @@ class HybridRetriever:
         self, 
         query: str, 
         limit: int,
-        source_ids: Optional[list[str]] = None
+        source_ids: Optional[list[str]] = None,
+        project_id: Optional[str] = None
     ) -> list[SearchResult]:
         """
         Search Milvus for semantically similar chunks.
+        
+        SECURITY: When project_id is provided, ONLY chunks from that project
+        are searched. This is critical for multi-tenancy data isolation.
         
         Args:
             query: Search query (will be embedded)
             limit: Maximum results to return
             source_ids: Optional list of document IDs to filter by
+            project_id: Optional project ID for multi-tenancy isolation
             
         Returns:
             List of SearchResult ordered by similarity (descending)
         """
+        import re
+        
         try:
             # Embed the query
             query_embedding = await self.embedding_service.embed_text(query)
             
+            # Build filter expressions for security isolation
+            filter_parts = []
+            
+            # SECURITY CRITICAL: Apply project_id filter for multi-tenancy
+            if project_id:
+                # Validate project_id is a valid UUID format to prevent injection
+                # UUIDs are exactly 36 chars: 8-4-4-4-12 hex digits with hyphens
+                uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                if re.match(uuid_pattern, str(project_id)):
+                    filter_parts.append(f'project_id == "{project_id}"')
+                    logger.debug(f"Applying project_id filter: {project_id}")
+                else:
+                    logger.warning(f"Invalid project_id format rejected (expected UUID): {project_id}")
+            
             # Build filter expression if source_ids provided
-            filter_expr = None
             if source_ids:
-                # Validate source_ids are valid UUIDs or strings (basic validation)
+                # Validate source_ids are valid UUIDs (strict validation)
                 # Milvus filter syntax: doc_id in ["id1", "id2", ...]
-                # Use proper escaping to prevent injection
-                import re
+                uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                 validated_ids = []
                 for sid in source_ids:
-                    # Allow UUID format and alphanumeric with hyphens
-                    if re.match(r'^[a-zA-Z0-9\-]+$', str(sid)):
+                    # Only allow valid UUID format
+                    if re.match(uuid_pattern, str(sid)):
                         validated_ids.append(str(sid))
                     else:
-                        logger.warning(f"Skipping invalid source_id: {sid}")
+                        logger.warning(f"Skipping invalid source_id (expected UUID): {sid}")
                 
                 if validated_ids:
                     escaped_ids = [f'"{sid}"' for sid in validated_ids]
-                    filter_expr = f"doc_id in [{', '.join(escaped_ids)}]"
-                    logger.debug(f"Applying Milvus filter: {filter_expr}")
+                    filter_parts.append(f"doc_id in [{', '.join(escaped_ids)}]")
+            
+            # Combine filter parts with AND
+            filter_expr = " and ".join(filter_parts) if filter_parts else None
+            if filter_expr:
+                logger.debug(f"Applying Milvus filter: {filter_expr}")
             
             # Search Milvus
             search_results = self._milvus_client.search(

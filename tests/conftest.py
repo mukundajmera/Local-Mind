@@ -49,6 +49,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: Tests that take more than 5 seconds"
     )
+    config.addinivalue_line(
+        "markers", "security: Security and isolation tests"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

@@ -555,20 +555,27 @@ async def chat(request: schemas.ChatRequest):
     
     Supports source-filtered retrieval: if source_ids is provided,
     only searches within those documents (the "Notebook" experience).
+    
+    SECURITY: When project_id is provided, search is STRICTLY limited
+    to documents within that project (multi-tenancy isolation).
     """
     try:
         context_text = ""
         sources = []
         
+        # Extract project_id for filtering (convert UUID to string for Milvus)
+        project_id_str = str(request.project_id) if request.project_id else None
+        
         # 1. Retrieve Context if enabled
         if "insight" in request.strategies or "sources" in request.strategies:
             try:
                 async with HybridRetriever() as retriever:
-                    # Search with optional source filtering
+                    # Search with optional source filtering AND project isolation
                     results = await retriever.search(
                         request.message, 
                         k=5,
-                        source_ids=request.source_ids
+                        source_ids=request.source_ids,
+                        project_id=project_id_str  # SECURITY: Enforce project isolation
                     )
                     
                     if results.results:
@@ -616,6 +623,7 @@ async def chat(request: schemas.ChatRequest):
             "context_used": bool(context_text),
             "filtered_sources": request.source_ids is not None,
             "searched_source_ids": request.source_ids,
+            "project_id": project_id_str,  # Echo back for debugging
         }
             
     except Exception as e:
