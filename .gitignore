@@ -94,6 +94,10 @@ logs/*.log
 # ==============================================================================
 # Data Volumes (Container-managed)
 # ==============================================================================
+# SQLite database (created at runtime)
+data/*.db
+data/localmind.db
+
 # Neo4j data (persisted by container)
 data/neo4j/data/
 data/neo4j/logs/
