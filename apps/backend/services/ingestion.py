@@ -494,12 +494,25 @@ class IngestionPipeline:
         return doc, text
     
     async def _embed_chunks(self, chunks: list[TextChunk]) -> list[TextChunk]:
-        """Add embeddings to chunks."""
-        embedded_chunks = []
+        """
+        Add embeddings to chunks using batch processing for performance.
         
-        for chunk in chunks:
-            embedding = await self.embedding_service.embed_text(chunk.text)
-            # Create new chunk with embedding (TextChunk is frozen)
+        Uses the batch embedding API to process multiple chunks in a single
+        model forward pass, significantly reducing overhead compared to
+        sequential embedding of individual chunks.
+        """
+        if not chunks:
+            return []
+        
+        # Extract texts for batch embedding
+        texts = [chunk.text for chunk in chunks]
+        
+        # Batch embed all texts at once for performance
+        embeddings = await self.embedding_service.embed_batch(texts)
+        
+        # Create new chunks with embeddings (TextChunk is frozen)
+        embedded_chunks = []
+        for chunk, embedding in zip(chunks, embeddings):
             embedded_chunk = TextChunk(
                 chunk_id=chunk.chunk_id,
                 doc_id=chunk.doc_id,
@@ -512,6 +525,7 @@ class IngestionPipeline:
             )
             embedded_chunks.append(embedded_chunk)
         
+        logger.debug(f"Batch embedded {len(embedded_chunks)} chunks")
         return embedded_chunks
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
