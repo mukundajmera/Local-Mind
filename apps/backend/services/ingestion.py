@@ -637,11 +637,12 @@ class IngestionPipeline:
         Returns:
             Dict with deletion statistics
         """
-        import re
+        from uuid import UUID as UUIDType
         
         # Validate doc_id format to prevent injection
-        uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-        if not re.match(uuid_pattern, str(doc_id)):
+        try:
+            UUIDType(str(doc_id))
+        except (ValueError, AttributeError):
             logger.warning(f"Invalid doc_id format rejected in delete_document: {doc_id}")
             return {"found": False, "chunks_deleted": 0, "error": "Invalid doc_id format"}
         

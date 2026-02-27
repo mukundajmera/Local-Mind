@@ -383,15 +383,19 @@ class TestMilvusDataConsistency:
 
         chunker = TextChunker(chunk_size=500, chunk_overlap=50)
 
-        # Force a fresh encoder attempt (even if cached)
+        # Force a fresh encoder attempt and mock tiktoken to fail
         chunker._encoder = None
 
-        # The _get_encoder should handle network errors gracefully
-        # In this sandboxed environment, tiktoken may fail to download
-        encoder = chunker._get_encoder()
-        # Whether or not it succeeds, _count_tokens should work
-        count = chunker._count_tokens("Hello world, this is a test sentence.")
-        assert count > 0, "Token count should be positive"
+        with patch("tiktoken.get_encoding", side_effect=Exception("Network unreachable")):
+            encoder = chunker._get_encoder()
+            # Encoder should be None (fallback mode)
+            assert encoder is None, "Expected None encoder when tiktoken fails"
+            
+            # _count_tokens should still work using char-based fallback
+            count = chunker._count_tokens("Hello world, this is a test sentence.")
+            assert count > 0, "Token count should be positive in fallback mode"
+            # Char-based: len("Hello world...") // 4
+            assert count == len("Hello world, this is a test sentence.") // 4
 
     def test_chunker_produces_chunks_offline(self, mock_settings):
         """
