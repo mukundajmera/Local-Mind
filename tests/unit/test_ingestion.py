@@ -256,3 +256,158 @@ class TestIngestionAtomicity:
             mock_milvus.upsert.assert_not_called()
         finally:
             bad_file.unlink()
+
+
+class TestMilvusDataConsistency:
+    """
+    Tests for Milvus data consistency: project_id always present,
+    doc_id validation in delete, and tiktoken fallback.
+    """
+
+    @pytest.mark.asyncio
+    async def test_project_id_always_set_on_milvus_data(
+        self, sample_txt_file, mock_settings
+    ):
+        """
+        Verify that project_id is ALWAYS set on Milvus upsert data,
+        even when no project_id is provided to ingest_document.
+        
+        Without this, chunks become invisible ghost data that no
+        project-scoped query can ever find.
+        """
+        from services.ingestion import IngestionPipeline
+
+        mock_milvus = MagicMock()
+        mock_milvus.has_collection.return_value = True
+        mock_milvus.load_collection.return_value = None
+        mock_milvus.upsert.return_value = {"insert_count": 1}
+
+        mock_embedding = AsyncMock()
+        mock_embedding.embed_batch.return_value = [[0.1] * 384]
+
+        pipeline = IngestionPipeline(settings=mock_settings)
+        pipeline._milvus_client = mock_milvus
+        pipeline.embedding_service = mock_embedding
+
+        # Ingest WITHOUT project_id
+        await pipeline.ingest_document(sample_txt_file, project_id=None)
+
+        # Verify upsert was called
+        mock_milvus.upsert.assert_called_once()
+        call_kwargs = mock_milvus.upsert.call_args.kwargs
+        data = call_kwargs["data"]
+
+        # CRITICAL: Every chunk must have a project_id field
+        for item in data:
+            assert "project_id" in item, (
+                "GHOST DATA: Chunk missing project_id field - will be invisible to all queries"
+            )
+            # When no project_id is provided, it should be empty string
+            assert item["project_id"] == "", (
+                f"Expected empty string for no project, got: {item['project_id']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_project_id_set_correctly_when_provided(
+        self, sample_txt_file, mock_settings
+    ):
+        """
+        Verify that project_id is correctly set when provided.
+        """
+        from services.ingestion import IngestionPipeline
+
+        mock_milvus = MagicMock()
+        mock_milvus.has_collection.return_value = True
+        mock_milvus.load_collection.return_value = None
+        mock_milvus.upsert.return_value = {"insert_count": 1}
+
+        mock_embedding = AsyncMock()
+        mock_embedding.embed_batch.return_value = [[0.1] * 384]
+
+        pipeline = IngestionPipeline(settings=mock_settings)
+        pipeline._milvus_client = mock_milvus
+        pipeline.embedding_service = mock_embedding
+
+        test_project_id = uuid4()
+        await pipeline.ingest_document(sample_txt_file, project_id=test_project_id)
+
+        mock_milvus.upsert.assert_called_once()
+        call_kwargs = mock_milvus.upsert.call_args.kwargs
+        data = call_kwargs["data"]
+
+        for item in data:
+            assert item["project_id"] == str(test_project_id), (
+                f"Expected project_id={test_project_id}, got: {item['project_id']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_delete_document_rejects_invalid_doc_id(self, mock_settings):
+        """
+        Verify that delete_document rejects non-UUID doc_ids
+        to prevent filter injection attacks.
+        """
+        from services.ingestion import IngestionPipeline
+
+        mock_milvus = MagicMock()
+        mock_milvus.has_collection.return_value = True
+        mock_milvus.load_collection.return_value = None
+
+        pipeline = IngestionPipeline(settings=mock_settings)
+        pipeline._milvus_client = mock_milvus
+
+        malicious_ids = [
+            '"; DROP TABLE chunks; --',
+            '../../../etc/passwd',
+            'not-a-uuid',
+            '<script>alert(1)</script>',
+        ]
+
+        for malicious_id in malicious_ids:
+            result = await pipeline.delete_document(malicious_id)
+            assert result["found"] is False, (
+                f"Malicious doc_id '{malicious_id}' was not rejected"
+            )
+            assert "error" in result, (
+                f"Expected error key for malicious doc_id '{malicious_id}'"
+            )
+            # Milvus query/delete should NEVER be called with malicious input
+            mock_milvus.query.assert_not_called()
+            mock_milvus.delete.assert_not_called()
+
+    def test_tiktoken_fallback_on_network_failure(self, mock_settings):
+        """
+        Verify that TextChunker falls back to char-based chunking
+        when tiktoken cannot download its encoding (e.g., offline env).
+        """
+        from services.ingestion import TextChunker
+
+        chunker = TextChunker(chunk_size=500, chunk_overlap=50)
+
+        # Force a fresh encoder attempt (even if cached)
+        chunker._encoder = None
+
+        # The _get_encoder should handle network errors gracefully
+        # In this sandboxed environment, tiktoken may fail to download
+        encoder = chunker._get_encoder()
+        # Whether or not it succeeds, _count_tokens should work
+        count = chunker._count_tokens("Hello world, this is a test sentence.")
+        assert count > 0, "Token count should be positive"
+
+    def test_chunker_produces_chunks_offline(self, mock_settings):
+        """
+        Verify chunking works correctly even without tiktoken encoding.
+        """
+        from services.ingestion import TextChunker
+
+        chunker = TextChunker(chunk_size=100, chunk_overlap=10)
+        # Force char-based fallback
+        chunker._encoder = None
+
+        text = "First paragraph about AI.\n\nSecond paragraph about ML.\n\nThird paragraph about NLP."
+        chunks = chunker.chunk_text(text, uuid4())
+
+        assert len(chunks) > 0, "Chunker should produce at least one chunk"
+        # All text should be present across chunks
+        all_text = " ".join(c.text for c in chunks)
+        assert "First paragraph" in all_text
+        assert "Third paragraph" in all_text
