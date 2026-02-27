@@ -119,6 +119,9 @@ class TextChunker:
             except ImportError:
                 logger.warning("tiktoken not available, falling back to char-based chunking")
                 return None
+            except Exception as e:
+                logger.warning(f"tiktoken encoding load failed ({e}), falling back to char-based chunking")
+                return None
         return self._encoder
     
     def _count_tokens(self, text: str) -> int:
@@ -545,8 +548,10 @@ class IngestionPipeline:
             for item in data:
                 item["filename"] = doc.filename
                 item["upload_date"] = doc.upload_date.isoformat()
-                if doc.project_id:
-                    item["project_id"] = str(doc.project_id)
+                # ALWAYS set project_id to ensure filter consistency.
+                # Without this, chunks ingested without project_id become
+                # invisible to project-scoped queries (ghost data).
+                item["project_id"] = str(doc.project_id) if doc.project_id else ""
             
             self._milvus_client.upsert(
                 collection_name=self.settings.milvus_collection,
@@ -627,11 +632,19 @@ class IngestionPipeline:
         Delete a document and all its chunks from Milvus.
         
         Args:
-            doc_id: Document ID to delete
+            doc_id: Document ID to delete (must be valid UUID format)
             
         Returns:
             Dict with deletion statistics
         """
+        import re
+        
+        # Validate doc_id format to prevent injection
+        uuid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        if not re.match(uuid_pattern, str(doc_id)):
+            logger.warning(f"Invalid doc_id format rejected in delete_document: {doc_id}")
+            return {"found": False, "chunks_deleted": 0, "error": "Invalid doc_id format"}
+        
         try:
             # Delete all entities with matching doc_id
             filter_expr = f'doc_id == "{doc_id}"'

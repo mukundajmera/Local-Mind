@@ -99,7 +99,7 @@ class TestIngestionAtomicity:
         
         # Mock the embedding service to avoid real model loading
         mock_embedding = AsyncMock()
-        mock_embedding.embed_text.return_value = [0.1] * 384
+        mock_embedding.embed_batch.return_value = [[0.1] * 384]
         
         with patch.object(
             IngestionPipeline, "__aenter__", 
@@ -150,7 +150,7 @@ class TestIngestionAtomicity:
         )
         
         mock_embedding = AsyncMock()
-        mock_embedding.embed_text.return_value = [0.1] * 384
+        mock_embedding.embed_batch.return_value = [[0.1] * 384]
         
         settings = mock_settings
         settings.upload_dir = str(test_upload_dir)
@@ -198,7 +198,7 @@ class TestIngestionAtomicity:
         
         # Mock embedding service to FAIL
         mock_embedding = AsyncMock()
-        mock_embedding.embed_text.side_effect = RuntimeError(
+        mock_embedding.embed_batch.side_effect = RuntimeError(
             "GPU out of memory / Model loading failed"
         )
         
