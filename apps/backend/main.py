@@ -458,17 +458,49 @@ async def list_sources(project_id: Optional[str] = None):
 
 
 @app.delete("/api/v1/sources/{doc_id}")
-async def delete_source(doc_id: str):
+async def delete_source(doc_id: str, project_id: Optional[str] = None):
     """
     Delete a document source and its associated data from Milvus and database.
     
     Removes the document and all chunks from the vector store and the document
     record from the database.
+    
+    SECURITY: When project_id is provided, verifies the document belongs to the
+    specified project before deletion to prevent cross-project data manipulation.
+    
+    Args:
+        doc_id: Document UUID to delete
+        project_id: Optional project UUID for ownership verification
     """
     try:
         from services.ingestion import IngestionPipeline
         from services.document_service import DocumentService
         from uuid import UUID as UUIDType
+        
+        # Validate doc_id format
+        try:
+            doc_uuid = UUIDType(doc_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid document ID format: {doc_id}")
+        
+        # SECURITY: Verify document ownership if project_id is provided
+        if project_id:
+            try:
+                pid = UUIDType(project_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid project_id format")
+            
+            async with DocumentService() as doc_service:
+                doc = await doc_service.get_document_by_id(doc_uuid)
+                if doc and str(doc.project_id) != str(pid):
+                    logger.warning(
+                        f"Cross-project deletion attempt: doc_id={doc_id}, "
+                        f"doc_project={doc.project_id}, requested_project={pid}"
+                    )
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Document does not belong to the specified project"
+                    )
         
         result = {}
         
@@ -484,15 +516,11 @@ async def delete_source(doc_id: str):
         # Always try to delete from documents table (Bug #3 fix)
         db_deleted = False
         try:
-            doc_uuid = UUIDType(doc_id)
             async with DocumentService() as doc_service:
                 db_deleted = await doc_service.delete_document_record(doc_uuid)
                 result["db_deleted"] = db_deleted
                 if db_deleted:
                     logger.info(f"Deleted document record from DB: {doc_id}")
-        except ValueError:
-            logger.warning(f"Invalid UUID format for DB deletion: {doc_id}")
-            result["db_deleted"] = False
         except Exception as db_err:
             logger.error(f"Failed to delete from DB: {db_err}")
             result["db_deleted"] = False

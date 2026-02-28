@@ -140,7 +140,7 @@ class TestTextChunk:
         assert "id" in milvus_dict
         assert milvus_dict["doc_id"] == str(doc_id)
         assert milvus_dict["text"] == "Test"
-        assert milvus_dict["embedding"] == [0.1, 0.2, 0.3]
+        assert milvus_dict["vector"] == [0.1, 0.2, 0.3]
         assert milvus_dict["position"] == 5
     
     def test_text_chunk_empty_text_fails(self):

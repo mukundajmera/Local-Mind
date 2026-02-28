@@ -256,5 +256,73 @@ class TestChatEndpointProjectIsolation:
             )
 
 
+class TestDeleteEndpointProjectIsolation:
+    """
+    Test that the DELETE /api/v1/sources/{doc_id} endpoint properly validates
+    project ownership to prevent cross-project data manipulation.
+    """
+    
+    @pytest.mark.asyncio
+    async def test_delete_with_wrong_project_id_is_rejected(self):
+        """
+        ATTACK: Try to delete a document belonging to Project A
+        using Project B's project_id.
+        
+        ASSERTION: Must return 403 Forbidden.
+        """
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from uuid import uuid4
+        from pathlib import Path
+        
+        project_a_id = uuid4()
+        project_b_id = uuid4()
+        doc_id = uuid4()
+        
+        # Create a mock document belonging to Project A
+        mock_doc = MagicMock()
+        mock_doc.project_id = project_a_id
+        
+        # Mock DocumentService to return the document
+        mock_doc_service = AsyncMock()
+        mock_doc_service.get_document_by_id.return_value = mock_doc
+        mock_doc_service.__aenter__ = AsyncMock(return_value=mock_doc_service)
+        mock_doc_service.__aexit__ = AsyncMock(return_value=None)
+        
+        with patch("services.document_service.DocumentService", return_value=mock_doc_service):
+            from main import delete_source
+            from fastapi import HTTPException
+            
+            # Attempt deletion with wrong project_id
+            with pytest.raises(HTTPException) as exc_info:
+                await delete_source(
+                    doc_id=str(doc_id),
+                    project_id=str(project_b_id)  # Wrong project!
+                )
+            
+            assert exc_info.value.status_code == 403, (
+                f"Expected 403 Forbidden, got {exc_info.value.status_code}"
+            )
+    
+    @pytest.mark.asyncio
+    async def test_delete_with_invalid_doc_id_returns_400(self):
+        """
+        ATTACK: Pass malicious doc_id to delete endpoint.
+        
+        ASSERTION: Must return 400 Bad Request.
+        """
+        from main import delete_source
+        from fastapi import HTTPException
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_source(
+                doc_id='"; DROP TABLE documents; --',
+                project_id=str(uuid4())
+            )
+        
+        assert exc_info.value.status_code == 400, (
+            f"Expected 400 Bad Request, got {exc_info.value.status_code}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
