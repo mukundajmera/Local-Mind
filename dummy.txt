@@ -1,0 +1,1 @@
+This is a dummy document for testing upload, rename, and delete workflows in Local Mind.

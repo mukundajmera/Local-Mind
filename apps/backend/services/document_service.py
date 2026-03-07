@@ -276,6 +276,21 @@ class DocumentService:
         logger.warning(f"Document not found for briefing update: id={doc_id}")
         return False
     
+    async def update_document_filename(self, doc_id: UUID, new_filename: str) -> bool:
+        """
+        Update the filename of a document record.
+        """
+        stmt = (
+            update(DocumentModel)
+            .where(DocumentModel.id == doc_id)
+            .values(filename=new_filename)
+        )
+        result = await self._session.execute(stmt)
+        if result.rowcount > 0:
+            logger.info(f"Updated document filename: id={doc_id}, new_name={new_filename}")
+            return True
+        return False
+    
     async def delete_document_record(self, doc_id: UUID) -> bool:
         """
         Delete a document record from the database.

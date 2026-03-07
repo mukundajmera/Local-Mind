@@ -386,3 +386,63 @@ async def get_document_briefing(doc_id: str):
         suggested_questions=questions or [],
         generated_at=doc.updated_at or datetime.utcnow()
     )
+
+class DocumentRenameRequest(BaseModel):
+    filename: str
+
+@router.patch("/sources/{doc_id}", status_code=200)
+async def rename_document(doc_id: str, request: DocumentRenameRequest):
+    """Rename a document source."""
+    try:
+        doc_uuid = UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+        
+    if not request.filename or not request.filename.strip():
+        raise HTTPException(status_code=400, detail="Filename cannot be empty")
+
+    async with DocumentService() as doc_service:
+        doc = await doc_service.get_document_by_id(doc_uuid)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        success = await doc_service.update_document_filename(doc_uuid, request.filename.strip())
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update document")
+            
+        return {"status": "success", "message": "Document renamed"}
+
+@router.delete("/sources/{doc_id}", status_code=200)
+async def delete_document(doc_id: str):
+    """Delete a document source and its embeddings."""
+    try:
+        doc_uuid = UUID(doc_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    async with DocumentService() as doc_service:
+        doc = await doc_service.get_document_by_id(doc_uuid)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+            
+        # Delete from Milvus via IngestionPipeline
+        try:
+            async with IngestionPipeline() as pipeline:
+                await pipeline.delete_document(doc_uuid)
+        except Exception as e:
+            logger.error(f"Failed to delete embeddings for doc {doc_id}: {e}")
+            # Continue with deletion from DB even if embeddings fail
+            
+        # Delete from DB
+        success = await doc_service.delete_document_record(doc_uuid)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete document from database")
+            
+        # Delete from disk
+        try:
+            if doc.file_path and os.path.exists(doc.file_path):
+                os.remove(doc.file_path)
+        except Exception as e:
+            logger.error(f"Failed to delete physical file {doc.file_path}: {e}")
+            
+        return {"status": "success", "message": "Document deleted"}

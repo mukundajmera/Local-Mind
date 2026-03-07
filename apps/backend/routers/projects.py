@@ -207,6 +207,70 @@ async def get_project(project_id: UUID):
         await session.close()
 
 
+@router.patch("/{project_id}", response_model=ProjectResponse)
+async def update_project(project_id: UUID, request: ProjectCreate):
+    """
+    Update project details (e.g., rename).
+    """
+    session = await get_db_session()
+    try:
+        from sqlalchemy.exc import IntegrityError
+        
+        stmt = select(Project).where(Project.project_id == project_id)
+        result = await session.execute(stmt)
+        project = result.scalar_one_or_none()
+        
+        if not project:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project {project_id} not found"
+            )
+            
+        project.name = request.name
+        if request.description:
+            project.description = request.description
+        project.updated_at = datetime.utcnow()
+        
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Project with name '{request.name}' already exists"
+            )
+            
+        # Get document count
+        count_stmt = (
+            select(func.count(DocumentModel.id))
+            .where(DocumentModel.project_id == project_id)
+            .where(DocumentModel.status != DocumentStatus.FAILED)
+        )
+        count_result = await session.execute(count_stmt)
+        doc_count = count_result.scalar() or 0
+        
+        return ProjectResponse(
+            project_id=project.project_id,
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            document_count=doc_count
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Failed to update project {project_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update project: {str(e)}"
+        )
+    finally:
+        await session.close()
+
+
 @router.delete("/{project_id}")
 async def delete_project(project_id: UUID):
     """

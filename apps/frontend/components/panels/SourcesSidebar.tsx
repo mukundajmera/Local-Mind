@@ -33,6 +33,10 @@ export function SourcesSidebar() {
     // Track active polling cleanup functions
     const pollingCleanups = useRef<Map<string, () => void>>(new Map());
 
+    // Rename states
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editName, setEditName] = useState<string>("");
+
     // Handle upload complete - start polling for status AND refresh list
     const handleUploadComplete = (docId?: string) => {
         // 1. Refresh the list so the new item (Pending) appears
@@ -188,6 +192,43 @@ export function SourcesSidebar() {
         }
     };
 
+    const handleRenameStart = (sourceId: string, currentName: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setEditingId(sourceId);
+        setEditName(currentName);
+    };
+
+    const handleRenameSave = async (sourceId: string, e: React.MouseEvent | React.KeyboardEvent) => {
+        e.stopPropagation();
+        if (!editName.trim()) {
+            setEditingId(null);
+            return;
+        }
+
+        // Optimistic UI
+        const previousSources = [...sources];
+        setSources(sources.map(s => s.id === sourceId ? { ...s, title: editName } : s));
+        setEditingId(null);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/v1/sources/${sourceId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: editName }),
+            });
+            if (!response.ok) throw new Error("Rename failed");
+        } catch (error) {
+            console.error("Rename error:", error);
+            alert("Failed to rename source. Restoring...");
+            setSources(previousSources);
+        }
+    };
+
+    const handleRenameCancel = (e: React.MouseEvent | React.KeyboardEvent) => {
+        e.stopPropagation();
+        setEditingId(null);
+    };
+
     return (
         <div className="flex flex-col h-full" data-testid="sources-sidebar">
             {/* Header */}
@@ -288,35 +329,71 @@ export function SourcesSidebar() {
                                     className="flex-1 min-w-0 cursor-pointer"
                                     onClick={() => handleViewSource(source.id)}
                                 >
-                                    <div className="text-sm font-medium theme-text-primary truncate">
-                                        {source.title}
-                                    </div>
-                                    <div className="text-xs theme-text-muted mt-0.5 flex items-center gap-2">
-                                        <span>
-                                            {uploadStatus[source.id] === "pending" || uploadStatus[source.id] === "processing" ? (
-                                                "⏳ Processing..."
-                                            ) : uploadStatus[source.id] === "failed" ? (
-                                                <span className="text-red-400" title={uploadErrors[source.id]}>❌ Failed</span>
-                                            ) : (
-                                                source.status === "ready" ? "✓ Ready" : "⏳ Processing..."
-                                            )}
-                                        </span>
-                                        {isSelected && (
-                                            <span className="text-cyber-blue">• Selected</span>
-                                        )}
-                                    </div>
+                                    {editingId === source.id ? (
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <input
+                                                type="text"
+                                                value={editName}
+                                                onChange={(e) => setEditName(e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter") handleRenameSave(source.id, e);
+                                                    if (e.key === "Escape") handleRenameCancel(e);
+                                                }}
+                                                className="w-full bg-cyber-dark/50 border border-cyber-blue/30 rounded px-2 py-0.5 text-sm theme-text-primary focus:outline-none focus:border-cyber-blue"
+                                                autoFocus
+                                            />
+                                            <button onClick={(e) => handleRenameSave(source.id, e)} className="text-cyber-green hover:text-green-400 p-0.5">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                            </button>
+                                            <button onClick={handleRenameCancel} className="text-red-400 hover:text-red-300 p-0.5">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="text-sm font-medium theme-text-primary truncate" title={source.title}>
+                                                {source.title}
+                                            </div>
+                                            <div className="text-xs theme-text-muted mt-0.5 flex items-center gap-2">
+                                                <span>
+                                                    {uploadStatus[source.id] === "pending" || uploadStatus[source.id] === "processing" ? (
+                                                        "⏳ Processing..."
+                                                    ) : uploadStatus[source.id] === "failed" ? (
+                                                        <span className="text-red-400" title={uploadErrors[source.id]}>❌ Failed</span>
+                                                    ) : (
+                                                        source.status === "ready" ? "✓ Ready" : "⏳ Processing..."
+                                                    )}
+                                                </span>
+                                                {isSelected && (
+                                                    <span className="text-cyber-blue">• Selected</span>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
 
-                                {/* Delete button */}
-                                <button
-                                    onClick={(e) => handleDeleteSource(source.id, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400 transition-all"
-                                    title="Delete source"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                </button>
+                                {/* Actions */}
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
+                                    <button
+                                        onClick={(e) => handleRenameStart(source.id, source.title, e)}
+                                        className="p-1 rounded hover:bg-cyber-blue/20 theme-text-faint hover:text-cyber-blue"
+                                        title="Rename source"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={(e) => handleDeleteSource(source.id, e)}
+                                        className="p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400"
+                                        title="Delete source"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         );
                     })

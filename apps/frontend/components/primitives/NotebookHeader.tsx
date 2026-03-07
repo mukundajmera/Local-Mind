@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useState, useEffect, useRef } from "react";
+import { API_BASE_URL } from "@/lib/api";
+import { ChevronDown } from "lucide-react";
 
 const NAV_ITEMS = [
     { href: "/", label: "Research Studio" },
@@ -19,6 +22,58 @@ interface NotebookHeaderProps {
 export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderProps) {
     const pathname = usePathname();
     const { toggleHelpModal } = useWorkspaceStore();
+
+    const [models, setModels] = useState<string[]>([]);
+    const [currentModel, setCurrentModel] = useState<string>("Loading...");
+    const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        // Fetch available models
+        fetch(`${API_BASE_URL}/api/v1/system/models/available`)
+            .then(res => res.json())
+            .then(data => setModels(Array.isArray(data) ? data : []))
+            .catch(err => console.error("Failed to fetch available models", err));
+
+        // Fetch current model
+        fetch(`${API_BASE_URL}/api/v1/system/models/current`)
+            .then(res => res.json())
+            .then(data => setCurrentModel(data.current_model || "Ready"))
+            .catch(err => {
+                console.error("Failed to fetch current model", err);
+                setCurrentModel("Ready");
+            });
+
+        // Close dropdown when clicking outside
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsModelDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const handleModelSelect = async (model: string) => {
+        setCurrentModel("Switching...");
+        setIsModelDropdownOpen(false);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/v1/system/models/switch`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model_name: model })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setCurrentModel(data.current_model);
+            } else {
+                setCurrentModel(model);
+            }
+        } catch (err) {
+            console.error("Failed to switch model", err);
+            setCurrentModel(model);
+        }
+    };
 
     return (
         <header className="glass-panel flex items-center justify-between px-6 py-3">
@@ -79,12 +134,48 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
                         </svg>
                     </button>
                 )}
-                <div className="hidden sm:flex items-center gap-2 text-xs theme-text-muted">
-                    <span>Status:</span>
-                    <span className="flex items-center gap-1 text-cyber-blue">
-                        <span className="w-2 h-2 rounded-full bg-cyber-blue animate-pulse" />
-                        Ready
-                    </span>
+
+                {/* Dynamic Status / Model Selector */}
+                <div
+                    className="hidden sm:flex items-center gap-2 text-xs theme-text-muted relative group"
+                    ref={dropdownRef}
+                    onMouseEnter={() => setIsModelDropdownOpen(true)}
+                    onMouseLeave={() => setIsModelDropdownOpen(false)}
+                >
+                    <span>Model:</span>
+                    <button
+                        className="flex items-center gap-1.5 text-cyber-blue hover:text-blue-400 bg-glass-100 px-2 py-1 rounded transition-colors"
+                        title="Hover to change model"
+                    >
+                        {currentModel === "Switching..." || currentModel === "Loading..." ? (
+                            <span className="w-2 h-2 rounded-full bg-cyber-blue animate-pulse" />
+                        ) : (
+                            <span className="w-2 h-2 rounded-full bg-cyber-green" />
+                        )}
+                        <span className="max-w-[150px] truncate">{currentModel}</span>
+                        <ChevronDown className={`w-3 h-3 transition-transform group-hover:rotate-180`} />
+                    </button>
+
+                    <div className={`absolute top-full right-0 mt-2 w-48 bg-gray-900 border border-glass rounded-lg shadow-xl backdrop-blur-xl overflow-hidden z-50 transition-all duration-200 origin-top ${isModelDropdownOpen ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-0 pointer-events-none'}`}>
+                        <div className="max-h-60 overflow-y-auto py-1">
+                            {models.length === 0 ? (
+                                <div className="px-3 py-2 text-xs text-gray-500">No models found</div>
+                            ) : (
+                                models.map(model => (
+                                    <div
+                                        key={model}
+                                        onClick={() => handleModelSelect(model)}
+                                        className={`px-3 py-2 cursor-pointer text-xs ${currentModel === model
+                                            ? "bg-cyber-blue/20 text-cyber-blue"
+                                            : "text-gray-300 hover:bg-white/10"
+                                            }`}
+                                    >
+                                        <div className="truncate">{model}</div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </header>

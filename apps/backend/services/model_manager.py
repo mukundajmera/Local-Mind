@@ -178,6 +178,11 @@ class ModelManager:
                 # Load new model
                 await self.load_model(model_name, **kwargs)
                 
+                # Update global settings so new LLMService instances pick it up
+                from config import get_settings
+                settings = get_settings()
+                settings.llm_model = model_name
+                
                 return {
                     "status": "success",
                     "previous_model": previous_model,
@@ -215,9 +220,11 @@ class ModelManager:
             Dict with model metadata
         """
         if self.current_model is None:
+            from config import get_settings
+            settings = get_settings()
             return {
-                "status": "no_model_loaded",
-                "current_model": None
+                "status": "not_loaded_in_memory",
+                "current_model": settings.llm_model
             }
         
         return {
@@ -230,14 +237,24 @@ class ModelManager:
     async def get_available_models(self) -> list[str]:
         """
         Get list of available models.
-        
-        This is a placeholder - in production, you'd query Ollama or your model registry.
-        
-        Returns:
-            List of available model names
         """
-        # TODO: Query Ollama API for available models
-        # For now, return common models
+        from config import get_settings
+        settings = get_settings()
+        
+        if settings.llm_provider == "ollama":
+            import httpx
+            try:
+                base_url = settings.llm_base_url or "http://localhost:11434"
+                url = f"{base_url.replace('/v1', '')}/api/tags"
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, timeout=5.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return [m["name"] for m in data.get("models", [])]
+            except Exception as e:
+                logger.error(f"Failed to fetch Ollama models: {e}")
+                
+        # Fallback
         return [
             "llama3.2:3b",
             "llama3.2:1b",
