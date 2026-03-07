@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import ModelSelector from "../ModelSelector";
 
 const NAV_ITEMS = [
     { href: "/", label: "Research Studio" },
@@ -26,6 +27,7 @@ export function NotebookHeader({ onToggleNotes, isNotesOpen }: NotebookHeaderPro
                 <div className="flex items-center gap-3">
                     <span className="theme-badge">Local Mind</span>
                 </div>
+                <ModelSelector />
                 <nav className="hidden md:flex items-center gap-1" data-testid="main-nav">
                     {NAV_ITEMS.map((item) => {
                         const isActive = pathname === item.href;

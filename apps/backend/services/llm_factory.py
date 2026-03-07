@@ -103,9 +103,11 @@ Return ONLY the JSON object, no markdown formatting or explanations."""
             settings: Application settings
         """
         self.settings = settings or get_settings()
-        # Default to Ollama local endpoint if not specified
-        self.base_url = base_url or self.settings.llm_base_url or "http://localhost:11434/v1"
-        self.model = model or self.settings.llm_model
+        # Ensure base_url always includes /v1 for OpenAI-compatible endpoint
+        raw_url = base_url or self.settings.llm_base_url or "http://localhost:11434/v1"
+        self.base_url = raw_url if raw_url.rstrip("/").endswith("/v1") else raw_url.rstrip("/") + "/v1"
+        # model override: passed model > settings model > hardcoded default
+        self.model = model or self.settings.llm_model or "llama3.2:3b"
         self._client: Optional[httpx.AsyncClient] = None
     
     async def __aenter__(self):
@@ -345,42 +347,91 @@ Extract entities and relationships following the schema exactly."""
         max_tokens: int = 1024,
     ) -> str:
         """
-        Simple chat completion for conversational use.
+        RAG-aware chat completion with conversation history.
         
         Args:
             user_message: User's question or message
-            context: Optional context from RAG retrieval
-            history: Optional conversation history
-            max_tokens: Maximum tokens to generate (auto-reduced for simple queries)
+            context: Optional context from RAG retrieval (with source citations)
+            history: Optional conversation history as list of {role, content} dicts
+            max_tokens: Maximum tokens to generate
             
         Returns:
             Assistant's response text
         """
-        system_prompt = "You are a helpful AI assistant with access to a knowledge base."
-        
-        # Adaptive token limit: use fewer tokens for queries without context
-        # This reduces response time for simple questions
-        effective_max_tokens = max_tokens
-        if not context:
+        # --- Build system prompt (RAG-aware) ---
+        if context:
+            system_prompt = (
+                "You are a precise research assistant for Local Mind. "
+                "Answer ONLY using the provided document excerpts below. "
+                "If the answer is not in the excerpts, say 'I couldn't find that in your documents.' "
+                "Always mention which document your answer comes from when possible.\n\n"
+                f"DOCUMENT EXCERPTS:\n{context}"
+            )
+            effective_max_tokens = max_tokens
+        else:
+            system_prompt = (
+                "You are a helpful AI assistant for Local Mind. "
+                "No documents are currently selected for context. "
+                "Answer from your general knowledge, but let the user know "
+                "they can select documents for more specific answers."
+            )
             effective_max_tokens = min(max_tokens, 512)
         
-        if context:
-            system_prompt += f"\n\nUse the following context to answer:\n{context}"
+        # --- Build messages array with proper OpenAI format ---
+        messages = [{"role": "system", "content": system_prompt}]
         
-        prompt = user_message
+        # Add conversation history (capped at last 6 messages = 3 turns)
         if history:
-            # Format history into prompt (simplified)
-            history_text = "\n".join(
-                f"{msg['role'].upper()}: {msg['content']}"
-                for msg in history[-5:]  # Last 5 messages
+            for msg in history[-6:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+        
+        # Add the current user message
+        messages.append({"role": "user", "content": user_message})
+        
+        # --- Call LLM directly (bypass self.generate to use multi-message) ---
+        start_time = time.perf_counter()
+        client = self._get_client()
+        
+        request_body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": effective_max_tokens,
+            "temperature": 0.7,
+            "stream": False,
+        }
+        
+        try:
+            response = await client.post("/chat/completions", json=request_body)
+            
+            if response.status_code == 503:
+                raise LLMBusyError("LLM server is busy")
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            generated_text = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            logger.info(
+                "Chat completion done",
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                latency_ms=round(latency_ms, 2),
+                model=self.model,
+                history_turns=len(history) if history else 0,
+                has_context=bool(context),
             )
-            prompt = f"Conversation history:\n{history_text}\n\nUser: {user_message}"
-        
-        response, _ = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=effective_max_tokens,
-            temperature=0.7,
-        )
-        
-        return response
+            
+            return generated_text
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 503:
+                raise LLMBusyError("LLM server is busy") from e
+            raise LLMServiceError(f"Chat request failed: {e}") from e
+        except httpx.RequestError as e:
+            raise LLMServiceError(f"LLM connection error: {e}") from e
+

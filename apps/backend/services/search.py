@@ -162,7 +162,7 @@ class HybridRetriever:
                 data=[query_embedding],
                 anns_field="vector",
                 limit=limit,
-                output_fields=["id", "doc_id", "text"],
+                output_fields=["id", "doc_id", "text", "filename"],
                 filter=filter_expr,
             )
             
@@ -175,7 +175,11 @@ class HybridRetriever:
                         score=float(hit["distance"]),  # Cosine similarity
                         source="vector",
                         doc_id=hit["entity"].get("doc_id"),
-                        metadata={"rank": rank, "distance": hit["distance"]},
+                        metadata={
+                            "rank": rank,
+                            "distance": hit["distance"],
+                            "filename": hit["entity"].get("filename", "unknown"),
+                        },
                     ))
             
             logger.debug(f"Vector search returned {len(results)} results")

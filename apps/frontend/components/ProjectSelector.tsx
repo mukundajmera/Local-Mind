@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import { ChevronDown, Folder, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Folder, Plus, Trash2, AlertCircle } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
 
 interface Project {
@@ -19,6 +19,20 @@ export function ProjectSelector() {
     const [isLoading, setIsLoading] = useState(false);
     const [showNewInput, setShowNewInput] = useState(false);
     const [newProjectName, setNewProjectName] = useState("");
+    const [backendOffline, setBackendOffline] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleClick = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [isOpen]);
 
     // Fetch projects
     useEffect(() => {
@@ -32,13 +46,15 @@ export function ProjectSelector() {
             if (res.ok) {
                 const data = await res.json();
                 setProjects(data);
+                setBackendOffline(false);
                 // Select first project if none selected
                 if (!currentProjectId && data.length > 0) {
                     setCurrentProject(data[0].project_id);
                 }
             }
-        } catch (error) {
-            console.error("Failed to fetch projects:", error);
+        } catch {
+            // Silently handle — backend may not be running yet
+            setBackendOffline(true);
         } finally {
             setIsLoading(false);
         }
@@ -69,7 +85,7 @@ export function ProjectSelector() {
     const currentProject = projects.find(p => p.project_id === currentProjectId);
 
     return (
-        <div className="relative mb-4 px-2">
+        <div className="relative mb-4 px-2" ref={dropdownRef}>
             <div
                 className="flex items-center justify-between p-2 rounded-lg bg-glass-100 hover:bg-glass-200 cursor-pointer transition-colors border border-transparent hover:border-cyber-blue/30"
                 onClick={() => setIsOpen(!isOpen)}
@@ -77,19 +93,29 @@ export function ProjectSelector() {
                 <div className="flex items-center gap-2 overflow-hidden">
                     <Folder className="w-4 h-4 text-cyber-blue shrink-0" />
                     <span className="text-sm font-medium theme-text-primary truncate">
-                        {currentProject?.name || "Select Project"}
+                        {isLoading ? "Loading..." : currentProject?.name || "Select Project"}
                     </span>
+                    {backendOffline && (
+                        <span title="Backend offline">
+                            <AlertCircle className="w-3 h-3 text-orange-400 shrink-0" />
+                        </span>
+                    )}
                 </div>
-                <ChevronDown className={`w-4 h-4 theme-text-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                <ChevronDown className={`w-4 h-4 theme-text-muted transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} />
             </div>
 
             {isOpen && (
                 <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-gray-900 border border-glass rounded-lg shadow-xl backdrop-blur-xl overflow-hidden">
                     <div className="p-2 max-h-60 overflow-y-auto space-y-1">
+                        {projects.length === 0 && !isLoading && (
+                            <p className="text-xs text-gray-500 text-center py-2">
+                                {backendOffline ? "Backend offline" : "No projects yet"}
+                            </p>
+                        )}
                         {projects.map(project => (
                             <div
                                 key={project.project_id}
-                                className={`flex items-center justify-between p-2 rounded cursor-pointer text-sm ${currentProjectId === project.project_id
+                                className={`group flex items-center justify-between p-2 rounded cursor-pointer text-sm ${currentProjectId === project.project_id
                                     ? "bg-cyber-blue/20 text-cyber-blue"
                                     : "text-gray-300 hover:bg-white/5"
                                     }`}
@@ -108,21 +134,28 @@ export function ProjectSelector() {
                                     onClick={async (e) => {
                                         e.stopPropagation();
                                         if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+
+                                        // Optimistic update with rollback
+                                        const prev = projects;
+                                        setProjects(p => p.filter(x => x.project_id !== project.project_id));
+                                        if (currentProjectId === project.project_id) {
+                                            setCurrentProject(null);
+                                        }
+
                                         try {
                                             const res = await fetch(`${API_BASE_URL}/api/v1/projects/${project.project_id}`, {
                                                 method: "DELETE"
                                             });
-                                            if (res.ok) {
-                                                setProjects(projects.filter(p => p.project_id !== project.project_id));
-                                                if (currentProjectId === project.project_id) {
-                                                    setCurrentProject(null);
-                                                }
+                                            if (!res.ok) {
+                                                // Rollback
+                                                setProjects(prev);
                                             }
-                                        } catch (err) {
-                                            console.error("Failed to delete project:", err);
+                                        } catch {
+                                            // Rollback on network error
+                                            setProjects(prev);
                                         }
                                     }}
-                                    className="p-1 rounded opacity-50 hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
+                                    className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
                                     title="Delete project"
                                 >
                                     <Trash2 className="w-3 h-3" />

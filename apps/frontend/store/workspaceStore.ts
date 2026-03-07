@@ -57,6 +57,9 @@ interface WorkspaceState {
     uploadStatus: Record<string, "pending" | "processing" | "ready" | "failed">;
     uploadErrors: Record<string, string>;
 
+    // Model selection
+    selectedModel: string | null;
+
     // Actions
     setSources: (sources: Source[]) => void;
     setLoadingSources: (loading: boolean) => void;
@@ -76,6 +79,7 @@ interface WorkspaceState {
     setUploadError: (docId: string, error: string) => void;
     clearUploadStatus: (docId: string) => void;
     pollDocumentStatus: (docId: string, onComplete?: () => void) => () => void;
+    setSelectedModel: (model: string | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -95,8 +99,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     currentProjectId: null,
     uploadStatus: {},
     uploadErrors: {},
+    selectedModel: null,
 
     // Actions
+    setSelectedModel: (model) => set({ selectedModel: model }),
+
     setSources: (sources) => set({ sources }),
     setLoadingSources: (loading) => set({ isLoadingSources: loading }),
     setActiveSource: (id) => set({ activeSourceId: id, viewMode: "guide" }),

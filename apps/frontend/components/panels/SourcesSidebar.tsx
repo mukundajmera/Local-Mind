@@ -71,11 +71,10 @@ export function SourcesSidebar() {
                 const data = await response.json();
                 setSources(data.sources || []);
             } else {
-                console.error("SourcesSidebar: Fetch failed status:", response.status);
                 setSources([]);
             }
-        } catch (error) {
-            console.error("Failed to fetch sources:", error);
+        } catch {
+            // Silently handle — backend may not be running yet
             setSources([]);
         } finally {
             setLoadingSources(false);
@@ -185,6 +184,31 @@ export function SourcesSidebar() {
             if (previousActive) setActiveSource(previousActive);
             // We can't easily revert selection without direct set access, but it's a minor UX blip compared to the deletion.
             fetchSources(); // Just re-fetch to be safe
+        }
+    };
+
+    const handleRenameSource = async (sourceId: string, currentTitle: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const newTitle = prompt("Enter new name for this source:", currentTitle);
+        if (!newTitle || newTitle === currentTitle) return;
+
+        // Optimistic rename
+        const previousSources = sources;
+        setSources(sources.map(s => s.id === sourceId ? { ...s, title: newTitle } : s));
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/v1/sources/${sourceId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: newTitle })
+            });
+            if (!response.ok) {
+                throw new Error("Rename failed");
+            }
+        } catch (error) {
+            console.error("Rename error:", error);
+            alert("Failed to rename source. Restoring...");
+            setSources(previousSources);
         }
     };
 
@@ -307,16 +331,27 @@ export function SourcesSidebar() {
                                     </div>
                                 </div>
 
-                                {/* Delete button */}
-                                <button
-                                    onClick={(e) => handleDeleteSource(source.id, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400 transition-all"
-                                    title="Delete source"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                </button>
+                                {/* Actions (Rename/Delete) */}
+                                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
+                                    <button
+                                        onClick={(e) => handleRenameSource(source.id, source.title, e)}
+                                        className="p-1 rounded hover:bg-cyber-blue/20 theme-text-faint hover:text-cyber-blue"
+                                        title="Rename source"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={(e) => handleDeleteSource(source.id, e)}
+                                        className="p-1 rounded hover:bg-red-500/20 theme-text-faint hover:text-red-400"
+                                        title="Delete source"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         );
                     })

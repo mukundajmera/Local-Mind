@@ -62,8 +62,8 @@ class Settings(BaseSettings):
     # ==========================================================================
     # Chunking Configuration
     # ==========================================================================
-    chunk_size_tokens: int = Field(default=500, ge=100, le=2000)
-    chunk_overlap_tokens: int = Field(default=50, ge=0, le=200)
+    chunk_size_tokens: int = Field(default=300, ge=100, le=2000)
+    chunk_overlap_tokens: int = Field(default=40, ge=0, le=200)
     
     # ==========================================================================
     # LLM Configuration (for entity extraction)
@@ -73,12 +73,12 @@ class Settings(BaseSettings):
         description="LLM provider: 'ollama', 'openai', 'anthropic'"
     )
     llm_model: str = Field(
-        default="llama3.2",
+        default="llama3.2:3b",
         description="Model name for entity extraction"
     )
     llm_base_url: Optional[str] = Field(
-        default="http://localhost:11434",
-        description="Base URL for Ollama or compatible API"
+        default="http://localhost:11434/v1",
+        description="Base URL for Ollama or compatible OpenAI API (must include /v1)"
     )
     llm_api_key: Optional[str] = Field(
         default="EMPTY",

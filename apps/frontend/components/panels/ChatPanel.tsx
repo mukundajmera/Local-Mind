@@ -67,7 +67,7 @@ export function ChatPanel() {
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage, pendingChatInput, setPendingChatInput } = useWorkspaceStore();
+    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage, pendingChatInput, setPendingChatInput, selectedModel } = useWorkspaceStore();
 
     // Explicit reference to handleSend for the useEffect to call it
     // We need to use a ref to avoid circular dependency in useEffect
@@ -113,13 +113,21 @@ export function ChatPanel() {
         setIsLoading(true);
 
         try {
+            // Build history from existing messages (last 6 = 3 turns)
+            const historyMessages = messages.slice(-6).map((m) => ({
+                role: m.role,
+                content: m.content,
+            }));
+
             const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: contentToSend,
+                    history: historyMessages,
                     source_ids: selectedSourceIds.length > 0 ? selectedSourceIds : null,
                     strategies: selectedSourceIds.length > 0 ? ["sources"] : [],
+                    model: selectedModel,
                 }),
             });
 

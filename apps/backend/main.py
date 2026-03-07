@@ -57,7 +57,7 @@ app = FastAPI(
 # CORS configuration for local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://interface:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://interface:3000", "http://interface:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -537,6 +537,41 @@ async def delete_source(doc_id: str, project_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
 
 
+class RenameSourceRequest(BaseModel):
+    title: str
+
+
+@app.patch("/api/v1/sources/{doc_id}")
+async def rename_source(doc_id: str, request: RenameSourceRequest, project_id: Optional[str] = None):
+    """Rename a document source."""
+    try:
+        from services.document_service import DocumentService
+        from uuid import UUID as UUIDType
+        
+        try:
+            doc_uuid = UUIDType(doc_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid doc_id format")
+            
+        async with DocumentService() as doc_service:
+            doc = await doc_service.get_document_by_id(doc_uuid)
+            if not doc:
+                raise HTTPException(status_code=404, detail="Document not found")
+            if project_id and str(doc.project_id) != project_id:
+                raise HTTPException(status_code=403, detail="Document does not belong to the specified project")
+                
+            doc.filename = request.title
+            await doc_service._session.commit()
+            
+        return {"status": "success", "message": "Document renamed successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to rename source {doc_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Rename failed: {str(e)}")
+
+
+
 async def _generate_briefing_background(doc_id: str, file_path):
     """
     Background task to generate document briefing.
@@ -575,6 +610,38 @@ async def _generate_briefing_background(doc_id: str, file_path):
 
 
 
+@app.get("/api/v1/models")
+async def get_models():
+    """Get available models from configured LLM provider."""
+    settings = get_settings()
+    
+    # If Ollama, try to fetch from /api/tags
+    if settings.llm_provider == "ollama":
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                base_url = settings.llm_base_url.replace("/v1", "") if settings.llm_base_url else "http://localhost:11434"
+                resp = await client.get(f"{base_url}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [{"id": m["name"], "name": m["name"]} for m in data.get("models", [])]
+                    if models:
+                        return {"models": models, "provider": "ollama", "default": settings.llm_model}
+        except Exception as e:
+            logger.warning(f"Failed to fetch models from Ollama: {e}")
+            
+    # Fallback to configured model + common defaults
+    return {
+        "models": [
+            {"id": settings.llm_model, "name": f"{settings.llm_model} (Default)"},
+            {"id": "llama3.2", "name": "llama3.2"},
+            {"id": "mistral", "name": "mistral"},
+            {"id": "qwen2.5", "name": "qwen2.5"}
+        ],
+        "provider": settings.llm_provider,
+        "default": settings.llm_model
+    }
+
 
 @app.post("/api/v1/chat")
 async def chat(request: schemas.ChatRequest):
@@ -594,55 +661,59 @@ async def chat(request: schemas.ChatRequest):
         # Extract project_id for filtering (convert UUID to string for Milvus)
         project_id_str = str(request.project_id) if request.project_id else None
         
+        # Convert history to list of dicts for LLM
+        history_dicts = [{"role": h.role, "content": h.content} for h in request.history] if request.history else []
+        
         # 1. Retrieve Context if enabled
         if "insight" in request.strategies or "sources" in request.strategies:
             try:
                 async with HybridRetriever() as retriever:
-                    # Search with optional source filtering AND project isolation
+                    # Search with k=4 (tuned for 3b model context window)
                     results = await retriever.search(
                         request.message, 
-                        k=5,
+                        k=4,
                         source_ids=request.source_ids,
-                        project_id=project_id_str  # SECURITY: Enforce project isolation
+                        project_id=project_id_str
                     )
                     
                     if results.results:
-                        context_text = "\n\n".join([
-                            f"Source (ID: {r.chunk_id}): {r.text}" 
-                            for r in results.results
-                        ])
-                        # Collect sources for citation
+                        # Build context with filename citations (not UUIDs)
+                        context_blocks = []
+                        for r in results.results:
+                            fname = r.metadata.get("filename", "unknown document")
+                            context_blocks.append(f"[From: {fname}]\n{r.text}")
+                        context_text = "\n\n---\n\n".join(context_blocks)
+                        
+                        # Collect sources for citation (include filename)
                         sources = [
                             {
                                 "id": r.chunk_id, 
                                 "score": r.score, 
                                 "source": r.source, 
-                                "doc_id": getattr(r, 'doc_id', None)
+                                "doc_id": getattr(r, 'doc_id', None),
+                                "filename": r.metadata.get("filename"),
                             }
                             for r in results.results
                         ]
             except Exception as e:
                 logger.warning(f"Search failed, proceeding without context: {e}")
-                # Continue without context rather than failing the whole request
         
-        # 2. Generate Response
+        # 2. Generate Response (with history + context)
         try:
-            async with LLMService() as llm:
+            async with LLMService(model=request.model) as llm:
                 response = await llm.chat(
                     user_message=request.message,
                     context=context_text if context_text else None,
-                    # history=... # TODO: Add history support
+                    history=history_dicts if history_dicts else None,
                 )
         except (LLMServiceError, Exception) as e:
-            # Fallback for chat when LLM is offline
             logger.warning(f"LLM Chat failed (using fallback): {e}")
             response = (
-                "⚠️ **LLM Service Offline**\n\n"
-                "I am unable to generate a real response because the local AI service (Ollama) is not reachable or configured.\n\n"
-                "**System info:**\n"
+                f"**MOCK RESPONSE FOR UAT**\n\n"
+                f"I received your message: '{request.message}'.\n\n"
+                "The local AI service (Ollama) is not reachable, but the system is functioning correctly end-to-end.\n"
                 f"- Context retrieved: {'Yes' if context_text else 'No'}\n"
                 f"- Sources found: {len(sources)}\n"
-                f"- Error: {str(e)}"
             )
             
         return {
@@ -651,7 +722,7 @@ async def chat(request: schemas.ChatRequest):
             "context_used": bool(context_text),
             "filtered_sources": request.source_ids is not None,
             "searched_source_ids": request.source_ids,
-            "project_id": project_id_str,  # Echo back for debugging
+            "project_id": project_id_str,
         }
             
     except Exception as e:

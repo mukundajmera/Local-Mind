@@ -173,10 +173,20 @@ class HybridSearchResponse(BaseModel):
 # Chat Models
 # =============================================================================
 
+class HistoryMessage(BaseModel):
+    """A single message in conversation history."""
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+
+
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint with optional source filtering."""
     
     message: str = Field(..., min_length=1, description="User's query or message")
+    history: List[HistoryMessage] = Field(
+        default_factory=list,
+        description="Conversation history (last N turns) for multi-turn context"
+    )
     context_node_ids: List[str] = Field(default_factory=list, description="Legacy: Context node IDs")
     strategies: List[str] = Field(default_factory=list, description="Search strategies to use")
     source_ids: Optional[List[str]] = Field(
@@ -186,6 +196,10 @@ class ChatRequest(BaseModel):
     project_id: Optional[UUID] = Field(
         default=None,
         description="Optional project ID to filter search. If provided, only searches documents in this project."
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Optional LLM model override for this request"
     )
 
 
