@@ -669,10 +669,11 @@ async def chat(request: schemas.ChatRequest):
             try:
                 async with HybridRetriever() as retriever:
                     # Search with k=4 (tuned for 3b model context window)
+                    # NOTE: Only use project_id for scoping. source_ids from the frontend
+                    # are API-level record IDs which don't match Milvus internal doc_ids.
                     results = await retriever.search(
                         request.message, 
                         k=4,
-                        source_ids=request.source_ids,
                         project_id=project_id_str
                     )
                     

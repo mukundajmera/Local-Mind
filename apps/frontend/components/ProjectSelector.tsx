@@ -30,8 +30,8 @@ export function ProjectSelector() {
                 setIsOpen(false);
             }
         };
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
+        document.addEventListener("mouseup", handleClick);
+        return () => document.removeEventListener("mouseup", handleClick);
     }, [isOpen]);
 
     // Fetch projects
@@ -133,7 +133,9 @@ export function ProjectSelector() {
                                 <button
                                     onClick={async (e) => {
                                         e.stopPropagation();
-                                        if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+                                        e.preventDefault();
+                                        const confirmed = confirm(`Delete project "${project.name}"? This cannot be undone.`);
+                                        if (!confirmed) return;
 
                                         // Optimistic update with rollback
                                         const prev = projects;
@@ -147,15 +149,15 @@ export function ProjectSelector() {
                                                 method: "DELETE"
                                             });
                                             if (!res.ok) {
-                                                // Rollback
                                                 setProjects(prev);
+                                                alert("Failed to delete project");
                                             }
                                         } catch {
-                                            // Rollback on network error
                                             setProjects(prev);
+                                            alert("Network error: project deletion failed");
                                         }
                                     }}
-                                    className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
+                                    className="p-1 rounded opacity-40 hover:!opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
                                     title="Delete project"
                                 >
                                     <Trash2 className="w-3 h-3" />

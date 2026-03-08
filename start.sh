@@ -154,9 +154,9 @@ start_backend() {
 start_frontend() {
     log_info "Starting Frontend (Next.js 15)..."
     
-    if check_port 3000; then
-        log_warn "Port 3000 already in use. Killing existing process..."
-        kill_port 3000
+    if check_port 3001; then
+        log_warn "Port 3001 already in use. Killing existing process..."
+        kill_port 3001
         sleep 1
     fi
     
@@ -178,8 +178,8 @@ start_frontend() {
     echo $FRONTEND_PID > "$LOGS_DIR/frontend.pid"
     
     log_info "Waiting for frontend to be ready..."
-    if wait_for_service "http://127.0.0.1:3000" "frontend"; then
-        log_success "Frontend running at http://localhost:3000 (PID: $FRONTEND_PID)"
+    if wait_for_service "http://127.0.0.1:3001" "frontend"; then
+        log_success "Frontend running at http://localhost:3001 (PID: $FRONTEND_PID)"
     else
         log_error "Frontend failed to start. Check $LOGS_DIR/frontend.log"
         exit 1
@@ -203,7 +203,7 @@ stop_services() {
     
     # Also kill any remaining processes on the ports
     kill_port 8000
-    kill_port 3000
+    kill_port 3001
     
     log_success "All services stopped"
 }
@@ -236,12 +236,12 @@ show_status() {
     echo ""
     
     # Frontend status
-    echo -e "${BLUE}--- Frontend (Port 3000) ---${NC}"
-    if check_port 3000; then
-        if curl -s http://127.0.0.1:3000 >/dev/null 2>&1; then
+    echo -e "${BLUE}--- Frontend (Port 3001) ---${NC}"
+    if check_port 3001; then
+        if curl -s http://127.0.0.1:3001 >/dev/null 2>&1; then
             log_success "Frontend is responding (200 OK)"
         else
-            log_warn "Port 3000 occupied but NOT responding"
+            log_warn "Port 3001 occupied but NOT responding"
         fi
     else
         log_error "Not running"
@@ -300,7 +300,7 @@ case "${1:-all}" in
         start_backend
         start_frontend
         show_status
-        log_success "All services started! Open http://localhost:3000"
+        log_success "All services started! Open http://localhost:3001"
         ;;
     stop)
         stop_services

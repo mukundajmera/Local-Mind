@@ -67,7 +67,7 @@ export function ChatPanel() {
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage, pendingChatInput, setPendingChatInput, selectedModel } = useWorkspaceStore();
+    const { activeSourceId, sources, selectedSourceIds, setViewMode, pinMessage, pendingChatInput, setPendingChatInput, selectedModel, currentProjectId } = useWorkspaceStore();
 
     // Explicit reference to handleSend for the useEffect to call it
     // We need to use a ref to avoid circular dependency in useEffect
@@ -128,6 +128,7 @@ export function ChatPanel() {
                     source_ids: selectedSourceIds.length > 0 ? selectedSourceIds : null,
                     strategies: selectedSourceIds.length > 0 ? ["sources"] : [],
                     model: selectedModel,
+                    project_id: currentProjectId || undefined,
                 }),
             });
 
@@ -167,7 +168,8 @@ export function ChatPanel() {
     };
 
     const handleSuggestion = (prompt: string) => {
-        setInput(prompt);
+        // Auto-send the suggestion instead of just filling input
+        handleSend(prompt);
     };
 
     const handlePinMessage = (message: Message) => {
@@ -246,13 +248,13 @@ export function ChatPanel() {
                                 }`}
                         >
                             {message.role === "assistant" ? (
-                                <div className="text-sm prose prose-invert prose-sm max-w-none">
+                                <div className="text-sm prose dark:prose-invert prose-sm max-w-none">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                         {message.content}
                                     </ReactMarkdown>
                                 </div>
                             ) : (
-                                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                                <p className="text-sm whitespace-pre-wrap theme-text-primary">{message.content}</p>
                             )}
                             <div className="flex items-center justify-between mt-2">
                                 <span className="text-xs theme-text-faint">

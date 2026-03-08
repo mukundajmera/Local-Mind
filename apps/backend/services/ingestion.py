@@ -33,7 +33,10 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     """
     Embedding service using SentenceTransformers.
+    Thread-safe lazy initialization with a lock to prevent concurrent model loading.
     """
+    
+    _lock = __import__("threading").Lock()
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
         self.model_name = model_name
@@ -42,8 +45,11 @@ class EmbeddingService:
     
     def _get_model(self):
         if self._model is None:
-            logger.info(f"Loading embedding model: {self.model_name}")
-            self._model = SentenceTransformer(self.model_name)
+            with EmbeddingService._lock:
+                # Double-check after acquiring lock
+                if self._model is None:
+                    logger.info(f"Loading embedding model: {self.model_name}")
+                    self._model = SentenceTransformer(self.model_name)
         return self._model
 
     async def embed_text(self, text: str) -> list[float]:

@@ -332,7 +332,7 @@ export function SourcesSidebar() {
                                 </div>
 
                                 {/* Actions (Rename/Delete) */}
-                                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
+                                <div className="flex items-center opacity-40 group-hover:opacity-100 transition-all">
                                     <button
                                         onClick={(e) => handleRenameSource(source.id, source.title, e)}
                                         className="p-1 rounded hover:bg-cyber-blue/20 theme-text-faint hover:text-cyber-blue"

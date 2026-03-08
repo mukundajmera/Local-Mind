@@ -361,10 +361,10 @@ Extract entities and relationships following the schema exactly."""
         # --- Build system prompt (RAG-aware) ---
         if context:
             system_prompt = (
-                "You are a precise research assistant for Local Mind. "
-                "Answer ONLY using the provided document excerpts below. "
-                "If the answer is not in the excerpts, say 'I couldn't find that in your documents.' "
-                "Always mention which document your answer comes from when possible.\n\n"
+                "You are a helpful research assistant for Local Mind. "
+                "Use the document excerpts below to answer the user's question. "
+                "Mention which document your information comes from. "
+                "If the excerpts don't contain relevant information, say so.\n\n"
                 f"DOCUMENT EXCERPTS:\n{context}"
             )
             effective_max_tokens = max_tokens
